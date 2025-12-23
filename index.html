@@ -374,7 +374,7 @@
                         (this.direction.y !== 0 && this.nextDirection.x !== 0)
                     );
 
-                    console.log(`[UPDATE] Buffered dir: (${this.nextDirection.x},${this.nextDirection.y}), canTurn: ${canTurn}, nearCenter: ${nearCenter}, isPerpendicular: ${isPerpendicular}`);
+
 
                     // For perpendicular turns, require being near tile center AND tile being walkable
                     if (canTurn && nearCenter) {
@@ -382,16 +382,16 @@
                         // This ensures the hitbox is fully aligned and won't clip into adjacent walls
                         if (isPerpendicular) {
                             this.snapToTileCenter('both');
-                            console.log(`[UPDATE] Snapped to center: (${this.x}, ${this.y})`)
+
                         }
 
                         // Final check: verify we can actually move in the new direction after snapping
                         if (this.canMove(this.nextDirection, map)) {
                             this.direction = this.nextDirection;
                             this.nextDirection = DIRECTIONS.NONE;
-                            console.log('[UPDATE] Applied buffered direction');
+
                         } else {
-                            console.log('[UPDATE] canMove failed after snap, keeping buffer');
+
                         }
                     }
                     // Keep nextDirection buffered if we can't turn yet
@@ -406,7 +406,7 @@
                     this.x += this.direction.x * this.speed;
                     this.y += this.direction.y * this.speed;
                 } else if (this.direction !== DIRECTIONS.NONE) {
-                    console.log(`[STUCK] pos: (${this.x.toFixed(1)}, ${this.y.toFixed(1)}), tile: (${Math.floor(this.x / TILE_SIZE)}, ${Math.floor(this.y / TILE_SIZE)}), dir: ${dirName}, nextDir: ${nextDirName}, canMoveCurrent: ${canMoveCurrent}`);
+
                 }
 
                 // Handle tunnel wrapping
@@ -484,7 +484,7 @@
             setDirection(direction, map) {
                 const reqDirName = this.getDirectionName(direction);
                 const currDirName = this.getDirectionName(this.direction);
-                console.log(`[INPUT] Requested: ${reqDirName}, Current: ${currDirName}, pos: (${this.x.toFixed(1)}, ${this.y.toFixed(1)})`);
+
 
                 // Check if this is a 180-degree turn (opposite direction) - always allow reversal
                 const isOpposite = (
@@ -496,13 +496,13 @@
 
                 if (isOpposite) {
                     // Immediately reverse direction
-                    console.log('[INPUT] Immediate reversal');
+
                     this.direction = direction;
                     this.nextDirection = DIRECTIONS.NONE;
                 } else if (this.direction === DIRECTIONS.NONE) {
                     // Starting from standstill - only set direction if we can actually move that way
                     const canMove = map && this.canMove(direction, map);
-                    console.log(`[INPUT] From standstill, canMove: ${canMove}`);
+
                     if (canMove) {
                         this.direction = direction;
                     } else {
@@ -511,7 +511,7 @@
                     }
                 } else {
                     // Buffer the direction change for when a valid path opens
-                    console.log(`[INPUT] Buffering ${reqDirName}`);
+
                     this.nextDirection = direction;
                 }
             }
@@ -567,13 +567,20 @@
             }
 
             update(map, pacman, ghosts) {
+                // Debug: log ghost state every 60 frames
+                if (!this._debugCounter) this._debugCounter = 0;
+                this._debugCounter++;
+                if (this._debugCounter % 60 === 0) {
+                    console.log(`[GHOST ${this.color}] pos: (${this.x.toFixed(1)}, ${this.y.toFixed(1)}), dir: (${this.direction.x},${this.direction.y}), inHouse: ${this.isInHouse}, speed: ${this.speed}`);
+                }
+
                 // Handle ghost house release
                 if (this.isInHouse) {
                     this.releaseTimer++;
                     if (this.releaseTimer > this.getReleaseDelay()) {
                         this.isInHouse = false;
                         this.y = 11 * TILE_SIZE + TILE_SIZE / 2;
-                        this.x = 14 * TILE_SIZE;
+                        this.x = 14 * TILE_SIZE + TILE_SIZE / 2;
                     } else {
                         // Bounce in house
                         this.y += Math.sin(this.releaseTimer * 0.1) * 0.5;
@@ -596,8 +603,11 @@
                 const tileCenterX = tileX * TILE_SIZE + TILE_SIZE / 2;
                 const tileCenterY = tileY * TILE_SIZE + TILE_SIZE / 2;
 
-                if (Math.abs(this.x - tileCenterX) < this.speed &&
-                    Math.abs(this.y - tileCenterY) < this.speed) {
+                // Use a smaller threshold (half speed) to avoid floating point issues
+                // that cause ghosts to get stuck in snap-move-snap loops
+                const snapThreshold = this.speed / 2;
+                if (Math.abs(this.x - tileCenterX) < snapThreshold &&
+                    Math.abs(this.y - tileCenterY) < snapThreshold) {
                     // Snap to center
                     this.x = tileCenterX;
                     this.y = tileCenterY;
@@ -606,6 +616,8 @@
                     if (this.isReturning && tileY >= 12 && tileY <= 15 && tileX >= 11 && tileX <= 16) {
                         this.isReturning = false;
                         this.isVulnerable = false;
+                        this.isInHouse = true;
+                        this.releaseTimer = 0;
                         this.direction = DIRECTIONS.UP;
                     }
 
@@ -613,9 +625,33 @@
                     this.direction = this.chooseDirection(map, pacman, ghosts);
                 }
 
-                // Move in current direction
-                this.x += this.direction.x * this.speed;
-                this.y += this.direction.y * this.speed;
+                // Move in current direction (only if we can)
+                const canMoveNow = this.canMove(this.direction, map);
+
+                // Debug: log movement attempt every 60 frames
+                if (this._debugCounter % 60 === 0) {
+                    console.log(`[GHOST ${this.color}] canMoveNow: ${canMoveNow}, will move by (${this.direction.x * this.speed}, ${this.direction.y * this.speed})`);
+                }
+
+                if (canMoveNow) {
+                    const beforeX = this.x, beforeY = this.y;
+                    this.x += this.direction.x * this.speed;
+                    this.y += this.direction.y * this.speed;
+                    if (this._debugCounter % 60 === 0) {
+                        console.log(`[GHOST ${this.color}] MOVED: (${beforeX.toFixed(1)}, ${beforeY.toFixed(1)}) -> (${this.x.toFixed(1)}, ${this.y.toFixed(1)})`);
+                    }
+                } else {
+                    // If blocked, try to find a new valid direction and move in it this frame
+                    const oldDir = this.direction;
+                    this.direction = this.chooseDirection(map, pacman, ghosts);
+                    const newCanMove = this.canMove(this.direction, map);
+                    console.log(`[GHOST ${this.color}] BLOCKED at (${this.x.toFixed(1)}, ${this.y.toFixed(1)}), tile (${Math.floor(this.x / TILE_SIZE)}, ${Math.floor(this.y / TILE_SIZE)}), oldDir: (${oldDir.x},${oldDir.y}), newDir: (${this.direction.x},${this.direction.y}), newCanMove: ${newCanMove}`);
+                    // Actually move in the new direction this frame if possible
+                    if (newCanMove) {
+                        this.x += this.direction.x * this.speed;
+                        this.y += this.direction.y * this.speed;
+                    }
+                }
 
                 // Handle tunnel wrapping
                 if (this.x < -TILE_SIZE / 2) {
@@ -640,14 +676,15 @@
                 const tileX = Math.floor(this.x / TILE_SIZE);
                 const tileY = Math.floor(this.y / TILE_SIZE);
 
+                // For returning ghosts, use BFS to find the path to the ghost house
+                if (this.isReturning) {
+                    return this.findPathToHouse(map, tileX, tileY);
+                }
+
                 // Get target position based on ghost personality
                 let targetX, targetY;
 
-                if (this.isReturning) {
-                    // Return to ghost house
-                    targetX = 14;
-                    targetY = 14;
-                } else if (this.isVulnerable) {
+                if (this.isVulnerable) {
                     // Move away from Pac-Man (random movement)
                     targetX = Math.random() * GRID_WIDTH;
                     targetY = Math.random() * GRID_HEIGHT;
@@ -690,6 +727,129 @@
 
                 return bestDirection;
             }
+
+            // BFS pathfinding to find the direction to the ghost house
+            findPathToHouse(map, startX, startY) {
+                // Target is the ghost house entrance at (13, 11) or (14, 11)
+                const targetX = 13;
+                const targetY = 11;
+
+                // Get current tile type
+                const currentTile = map.getTile(startX, startY);
+
+                // Debug logging for returning ghosts
+                if (this._debugCounter % 60 === 0) {
+                    console.log(`[RETURNING ${this.color}] BFS from tile (${startX}, ${startY}) type=${currentTile} targeting entrance (${targetX}, ${targetY})`);
+                }
+
+                // Special case 1: Already inside the ghost house (tile type 4)
+                // Just move down toward the center
+                if (currentTile === 4) {
+                    if (this._debugCounter % 60 === 0) {
+                        console.log(`[RETURNING ${this.color}] Inside ghost house, going DOWN`);
+                    }
+                    return DIRECTIONS.DOWN;
+                }
+
+                // Special case 2: At the entrance row (y=11) and within the entrance corridor
+                // The entrance is at columns 9-18 on row 11
+                if (startY === 11 && startX >= 9 && startX <= 18) {
+                    const belowTile = map.getTile(startX, startY + 1);
+                    if (this._debugCounter % 60 === 0) {
+                        console.log(`[RETURNING ${this.color}] At entrance row 11, belowTile at (${startX}, ${startY + 1}) = ${belowTile}`);
+                    }
+                    // If we can enter the house (tile below is type 4 or 0 leading to house)
+                    if (belowTile === 4) {
+                        return DIRECTIONS.DOWN;
+                    }
+                    // If below is blocked, need to move sideways to find the entrance
+                    // The actual entrance (type 4) is at columns 13-14 on row 12
+                    if (startX < 13) return DIRECTIONS.RIGHT;
+                    if (startX > 14) return DIRECTIONS.LEFT;
+                    // At columns 13 or 14, go down
+                    return DIRECTIONS.DOWN;
+                }
+
+                // BFS to find shortest path
+                const queue = [[startX, startY, null]]; // [x, y, firstDirection]
+                const visited = new Set();
+                visited.add(`${startX},${startY}`);
+
+                const directions = [
+                    { dir: DIRECTIONS.UP, dx: 0, dy: -1, name: 'UP' },
+                    { dir: DIRECTIONS.DOWN, dx: 0, dy: 1, name: 'DOWN' },
+                    { dir: DIRECTIONS.LEFT, dx: -1, dy: 0, name: 'LEFT' },
+                    { dir: DIRECTIONS.RIGHT, dx: 1, dy: 0, name: 'RIGHT' }
+                ];
+
+                // Don't reverse direction
+                const opposite = this.getOppositeDirection();
+
+                let iterations = 0;
+                const maxIterations = GRID_WIDTH * GRID_HEIGHT; // Prevent infinite loops
+
+                while (queue.length > 0 && iterations < maxIterations) {
+                    iterations++;
+                    const [x, y, firstDir] = queue.shift();
+
+                    // Check if we reached the target area (entrance corridor at row 11)
+                    if (y === targetY && x >= 12 && x <= 15) {
+                        if (this._debugCounter % 60 === 0) {
+                            const dirName = firstDir === DIRECTIONS.UP ? 'UP' :
+                                firstDir === DIRECTIONS.DOWN ? 'DOWN' :
+                                    firstDir === DIRECTIONS.LEFT ? 'LEFT' :
+                                        firstDir === DIRECTIONS.RIGHT ? 'RIGHT' : 'DOWN';
+                            console.log(`[RETURNING ${this.color}] BFS found path! First direction: ${dirName}`);
+                        }
+                        return firstDir || DIRECTIONS.DOWN;
+                    }
+
+                    for (const { dir, dx, dy, name } of directions) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        const key = `${nx},${ny}`;
+
+                        // Skip if already visited
+                        if (visited.has(key)) continue;
+
+                        // Skip if this is the first move and it would reverse direction
+                        if (firstDir === null && dir === opposite) continue;
+
+                        // Check bounds - skip tiles outside the map
+                        if (nx < 0 || nx >= GRID_WIDTH || ny < 0 || ny >= GRID_HEIGHT) continue;
+
+                        // Check if walkable (for returning ghosts, ghost house tiles are also walkable)
+                        const tile = map.getTile(nx, ny);
+                        if (tile === 1) continue; // Wall
+
+                        visited.add(key);
+                        // Track which direction we took first
+                        queue.push([nx, ny, firstDir === null ? dir : firstDir]);
+                    }
+                }
+
+                // Fallback: if no path found, log and pick any valid direction
+                if (this._debugCounter % 60 === 0) {
+                    console.log(`[RETURNING ${this.color}] BFS failed to find path after ${iterations} iterations!`);
+                }
+
+                for (const { dir, dx, dy, name } of directions) {
+                    if (dir === opposite) continue;
+                    const nx = startX + dx;
+                    const ny = startY + dy;
+                    if (nx < 0 || nx >= GRID_WIDTH || ny < 0 || ny >= GRID_HEIGHT) continue;
+                    const tile = map.getTile(nx, ny);
+                    if (tile !== 1) {
+                        if (this._debugCounter % 60 === 0) {
+                            console.log(`[RETURNING ${this.color}] Fallback direction: ${name}`);
+                        }
+                        return dir;
+                    }
+                }
+
+                return this.direction;
+            }
+
 
             getTarget(pacman, ghosts) {
                 const pacTile = pacman.getTilePosition();
@@ -740,6 +900,38 @@
                 if (this.direction === DIRECTIONS.LEFT) return DIRECTIONS.RIGHT;
                 if (this.direction === DIRECTIONS.RIGHT) return DIRECTIONS.LEFT;
                 return DIRECTIONS.NONE;
+            }
+
+            canMove(direction, map) {
+                // Check if ghost can move in the given direction (same logic as Pac-Man)
+                const nextX = this.x + direction.x * this.speed;
+                const nextY = this.y + direction.y * this.speed;
+
+                // Get the corners of the ghost's hitbox
+                const halfSize = TILE_SIZE / 2 - 2;
+                const corners = [
+                    { x: nextX - halfSize, y: nextY - halfSize },
+                    { x: nextX + halfSize, y: nextY - halfSize },
+                    { x: nextX - halfSize, y: nextY + halfSize },
+                    { x: nextX + halfSize, y: nextY + halfSize }
+                ];
+
+                for (const corner of corners) {
+                    const tileX = Math.floor(corner.x / TILE_SIZE);
+                    const tileY = Math.floor(corner.y / TILE_SIZE);
+
+                    // Check for wall collision
+                    if (map.isWall(tileX, tileY)) {
+                        return false;
+                    }
+
+                    // Ghost house tiles - only accessible when returning
+                    const tile = map.getTile(tileX, tileY);
+                    if (tile === 4 && !this.isReturning) {
+                        return false;
+                    }
+                }
+                return true;
             }
 
             makeVulnerable() {
