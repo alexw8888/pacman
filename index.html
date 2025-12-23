@@ -31,15 +31,14 @@
         }
 
         #ui {
-            position: absolute;
-            top: 20px;
             width: 100%;
             display: flex;
             justify-content: space-between;
-            padding: 0 20px;
+            padding: 10px 20px;
             box-sizing: border-box;
             font-size: 20px;
             pointer-events: none;
+            background: #000;
         }
 
         #overlay {
@@ -84,6 +83,7 @@
     <div id="game-container">
         <div id="ui">
             <div>SCORE: <span id="score">0</span></div>
+            <div>LIVES: <span id="lives">3</span></div>
             <div>HIGH: <span id="high-score">0</span></div>
         </div>
         <canvas id="gameCanvas"></canvas>
@@ -126,7 +126,7 @@
 
         // Map Representation:
         // 0: Empty, 1: Wall, 2: Pellet, 3: Power Pellet, 4: Ghost House, 5: Portal
-        const MAP_LAYOUT = [
+        const MAP_TEMPLATE = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1],
             [1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1],
@@ -160,19 +160,32 @@
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         ];
 
+        let MAP_LAYOUT = [];
+
         /**
          * UTILS
          */
         function getTile(x, y) {
             const row = Math.floor(y / TILE_SIZE);
             const col = Math.floor(x / TILE_SIZE);
-            if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return 0;
+            // Handle row 14 portals explicitly
+            if (row === 14 && (col < 0 || col >= COLS)) return 5;
+            // Strict wall for all other out of bounds
+            if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return 1;
             return MAP_LAYOUT[row][col];
         }
 
-        function isWall(x, y) {
+        function isWall(x, y, entity = null) {
             const tile = getTile(x, y);
-            return tile === 1 || tile === 4;
+            if (tile === 4) { // Ghost House Gate
+                if (entity instanceof Ghost) {
+                    if (entity.mode === 'EATEN') return false;
+                    // Allow exit (moving UP from below the gate at row 12)
+                    if (entity.y > y && entity.getTilePos().row >= 12) return false;
+                }
+                return true; // Wall for Pac-Man and ghosts trying to enter (if not eaten)
+            }
+            return tile === 1;
         }
 
         /**
@@ -224,19 +237,22 @@
                 if (checkX < 0) checkX = CANVAS_WIDTH - 1;
                 if (checkX >= CANVAS_WIDTH) checkX = 0;
 
-                return !isWall(checkX, checkY);
+                const isGhost = this instanceof Ghost;
+                return !isWall(checkX, checkY, this);
             }
 
             isAtIntersection() {
-                // Check if centered on a tile
-                const centerX = Math.floor(this.x / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-                const centerY = Math.floor(this.y / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-                return Math.abs(this.x - centerX) < this.speed && Math.abs(this.y - centerY) < this.speed;
+                // Increase tolerance to ensure intersection is caught even at high speeds
+                const centerX = (Math.floor(this.x / TILE_SIZE) + 0.5) * TILE_SIZE;
+                const centerY = (Math.floor(this.y / TILE_SIZE) + 0.5) * TILE_SIZE;
+                const tolerance = this.speed + 0.1;
+                return Math.abs(this.x - centerX) < tolerance / 2 &&
+                    Math.abs(this.y - centerY) < tolerance / 2;
             }
 
             snapToTile() {
-                this.x = Math.floor(this.x / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-                this.y = Math.floor(this.y / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+                this.x = (Math.floor(this.x / TILE_SIZE) + 0.5) * TILE_SIZE;
+                this.y = (Math.floor(this.y / TILE_SIZE) + 0.5) * TILE_SIZE;
             }
         }
 
@@ -327,25 +343,50 @@
                 else if (this.mode === 'EATEN') this.speed = this.eatenSpeed;
                 else this.speed = this.baseSpeed;
 
+                // Return to house center if eaten
+                if (this.mode === 'EATEN') {
+                    const houseCenterX = 13.5 * TILE_SIZE;
+                    const houseCenterY = 14 * TILE_SIZE;
+                    const dist = Math.hypot(this.x - houseCenterX, this.y - houseCenterY);
+                    if (dist < TILE_SIZE / 2) {
+                        this.mode = 'CHASE';
+                    }
+                }
+
                 if (this.isAtIntersection()) {
                     this.snapToTile();
                     this.chooseDirection(pacman);
                 }
 
-                this.x += this.dir.x * this.speed;
-                this.y += this.dir.y * this.speed;
-
-                // Portal wrap
-                if (this.x < 0) this.x = CANVAS_WIDTH;
-                if (this.x > CANVAS_WIDTH) this.x = 0;
-
-                // Return to start if eaten
-                if (this.mode === 'EATEN') {
-                    const dist = Math.hypot(this.x - this.startX, this.y - this.startY);
-                    if (dist < TILE_SIZE) {
-                        this.mode = 'CHASE';
-                    }
+                if (this.canMove(this.dir)) {
+                    this.x += this.dir.x * this.speed;
+                    this.y += this.dir.y * this.speed;
+                } else {
+                    this.snapToTile();
+                    // If blocked, force a direction change at next frame
+                    this.chooseDirection(pacman);
                 }
+
+                // Portal wrap at row 14 only
+                if (Math.floor(this.y / TILE_SIZE) === 14) {
+                    if (this.x < -TILE_SIZE) this.x = CANVAS_WIDTH + TILE_SIZE / 2;
+                    if (this.x > CANVAS_WIDTH + TILE_SIZE) this.x = -TILE_SIZE / 2;
+                } else {
+                    // Clamp to screen for other rows to prevent disappearing
+                    this.x = Math.max(TILE_SIZE / 2, Math.min(CANVAS_WIDTH - TILE_SIZE / 2, this.x));
+                    this.y = Math.max(TILE_SIZE / 2, Math.min(CANVAS_HEIGHT - TILE_SIZE / 2, this.y));
+                }
+
+                // Recovery: if somehow x/y are NaN, reset to start
+                if (isNaN(this.x) || isNaN(this.y)) {
+                    this.x = this.startX;
+                    this.y = this.startY;
+                    this.mode = 'CHASE';
+                    console.error('Ghost NaN recovery triggered', this.id);
+                }
+
+                // Removal of old EATEN recovery check here as it's replaced or handled in update start
+                // (The previous check was at the end of update, moving logic flow up slightly)
             }
 
             chooseDirection(pacman) {
@@ -372,8 +413,16 @@
 
                 let targetX, targetY;
                 if (this.mode === 'EATEN') {
-                    targetX = this.startX;
-                    targetY = this.startY;
+                    targetX = 13.5 * TILE_SIZE;
+                    targetY = 14 * TILE_SIZE;
+                } else if ((getTile(this.x, this.y) === 4 || (this.y > 12 * TILE_SIZE && this.y < 16 * TILE_SIZE && this.x > 10 * TILE_SIZE && this.x < 18 * TILE_SIZE)) && this.mode !== 'EATEN') {
+                    // Force exit from house
+                    targetX = 13.5 * TILE_SIZE;
+                    targetY = 11 * TILE_SIZE;
+                    // Move towards the horizontal center first, then UP
+                    if (Math.abs(this.x - targetX) > 2) {
+                        targetY = this.y; // Focus on horizontal alignment
+                    }
                 } else {
                     // Simplistic target AI
                     targetX = pacman.x;
@@ -401,7 +450,14 @@
                     }
                 });
 
-                this.dir = bestDir;
+                // If inside the ghost house, force UP direction ONLY if not eaten
+                const tile = getTile(this.x, this.y);
+                if (tile === 4 && this.mode !== 'EATEN') {
+                    this.dir = DIRECTIONS.UP;
+                    return;
+                }
+
+                this.dir = bestDir || this.dir;
             }
 
             draw(ctx) {
@@ -442,6 +498,7 @@
 
                 this.score = 0;
                 this.highScore = 0;
+                this.lives = 3;
                 this.state = 'START'; // START, PLAYING, GAMEOVER
                 this.frightenedTimer = 0;
 
@@ -457,14 +514,27 @@
                     new Ghost(11.5, 14, COLORS.GHOST_CYAN, 2),
                     new Ghost(15.5, 14, COLORS.GHOST_ORANGE, 3)
                 ];
+                this.ghosts[0].dir = DIRECTIONS.LEFT; // Red ghost starts moving
+                this.ghosts[1].dir = DIRECTIONS.UP;   // Others move up to exit
+                this.ghosts[2].dir = DIRECTIONS.UP;
+                this.ghosts[3].dir = DIRECTIONS.UP;
+
                 // Reset map data
+                MAP_LAYOUT = JSON.parse(JSON.stringify(MAP_TEMPLATE));
+
+                this.totalPellets = this.countPellets();
+            }
+
+            countPellets() {
+                let count = 0;
                 for (let r = 0; r < ROWS; r++) {
                     for (let c = 0; c < COLS; c++) {
-                        if (MAP_LAYOUT[r][c] === 0 && r < 20 && Math.random() < 0.05) {
-                            // could reset map but map is static constant for simplicity
+                        if (MAP_LAYOUT[r][c] === 2 || MAP_LAYOUT[r][c] === 3) {
+                            count++;
                         }
                     }
                 }
+                return count;
             }
 
             bindEvents() {
@@ -486,9 +556,31 @@
             start() {
                 this.state = 'PLAYING';
                 this.score = 0;
+                this.lives = 3;
                 this.init();
                 document.getElementById('overlay').style.display = 'none';
+                document.getElementById('lives').innerText = this.lives;
                 this.loop();
+            }
+
+            resetRound() {
+                this.pacman.x = 13.5 * TILE_SIZE + TILE_SIZE / 2;
+                this.pacman.y = 23 * TILE_SIZE + TILE_SIZE / 2;
+                this.pacman.dir = DIRECTIONS.LEFT;
+                this.pacman.nextDir = DIRECTIONS.LEFT;
+
+                const ghostStarts = [
+                    { x: 13.5, y: 11 },
+                    { x: 13.5, y: 14 },
+                    { x: 11.5, y: 14 },
+                    { x: 15.5, y: 14 }
+                ];
+                this.ghosts.forEach((g, i) => {
+                    g.x = ghostStarts[i].x * TILE_SIZE + TILE_SIZE / 2;
+                    g.y = ghostStarts[i].y * TILE_SIZE + TILE_SIZE / 2;
+                    g.mode = 'CHASE';
+                    g.dir = i === 0 ? DIRECTIONS.LEFT : DIRECTIONS.UP;
+                });
             }
 
             gameOver() {
@@ -531,10 +623,24 @@
                             this.score += 200;
                             playSound(1320, 'sine', 0.1);
                         } else if (ghost.mode === 'CHASE' || ghost.mode === 'SCATTER') {
-                            this.gameOver();
+                            this.lives--;
+                            document.getElementById('lives').innerText = this.lives;
+                            if (this.lives > 0) {
+                                this.resetRound();
+                            } else {
+                                this.gameOver();
+                            }
+                            return; // Stop processing this frame
                         }
                     }
                 });
+
+                // Check for Level Clear
+                if (this.countPellets() === 0) {
+                    this.init(); // Reset board and entities
+                    playSound(660, 'square', 0.2);
+                    playSound(880, 'square', 0.2);
+                }
 
                 document.getElementById('score').innerText = this.score;
             }
