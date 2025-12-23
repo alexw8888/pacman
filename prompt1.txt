@@ -1,0 +1,55 @@
+Role & Objective: Act as an expert HTML5 game developer. Write a complete, functional clone of the arcade game "Pac-Man" contained entirely within a single index.html file. The file must include the HTML structure, CSS for styling, and Vanilla JavaScript for the game logic.
+
+Technical Constraints:
+
+    Single File: All code (HTML/CSS/JS) must be in one file. No external assets (images/sounds) are allowed. Use CSS/Canvas for graphics and the Web Audio API for sound (oscillators) if possible, or keep it silent.
+
+    Tech Stack: HTML5 Canvas API for rendering. No external libraries (like Phaser or jQuery).
+
+    Resolution: Use a fixed canvas size (e.g., 448x496 or similar aspect ratio) that scales to fit the window.
+
+Game Mechanics Requirements:
+
+    Map/Grid: Create a tile-based map representing the walls, pellets, power pellets, and empty space. Use a 2D array to represent the layout.
+
+    Player (Pac-Man): * Movement should be controlled via Arrow Keys.
+
+        Implement "buffered input" (if the player presses a key before a turn, Pac-Man turns immediately when he reaches the intersection).
+
+        Mouth animation (opening and closing) using Canvas arc.
+
+    Ghosts: * Implement at least 4 ghosts with distinct colors (Red, Pink, Cyan, Orange).
+
+        AI: They should not move randomly; they should have basic pathfinding (e.g., look ahead at intersections and choose the direction that brings them closer to Pac-Man).
+
+        Vulnerability: When a Power Pellet is eaten, ghosts turn blue and move slower/randomly. If eaten, they return to the center box (respawn).
+
+    Scoring: 10 points for pellets, 50 for power pellets, 200+ for ghosts.
+
+    Game Loop: Use requestAnimationFrame for smooth rendering.
+
+    Game States: Include a "Press Space to Start" screen and a "Game Over" screen.
+
+Visual Style:
+
+    Background: Black.
+
+    Walls: Blue double-lines (classic arcade look).
+
+    Pellets: Pale yellow/white.
+
+    Font: Use a monospace font (like Courier) for the score display.
+
+Code Structure: Please organize the code clearly using the following structure:
+
+    Constants: Tile size, grid dimensions, colors, speeds.
+
+    Map Data: The 2D array layout.
+
+    Classes/Objects: Pacman, Ghost, Map, Game.
+
+    Input Handling: Event listeners.
+
+    Main Loop: Update and Draw functions.
+
+Output: Provide the full code inside a single code block. Ensure the logic handles collision detection carefully so Pac-Man does not get stuck in walls.

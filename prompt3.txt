@@ -1,0 +1,45 @@
+Role & Objective: Act as a Creative Game Designer and Lead Developer. Build upon the React/Vite Pac-Man application we just created. Your goal is to modernize the game to make it "better than the arcade" by adding "Game Juice" (visual feedback), a distinct visual style, and new gameplay mechanics.
+
+New Feature Requirements:
+
+    Visual Overhaul (Cyberpunk/Neon Style):
+
+        Change the aesthetic from flat colors to a "Neon/Glow" style.
+
+        Use Canvas shadowBlur and shadowColor to make the walls and Pac-Man glow.
+
+        Dynamic background: A subtle grid or vignette effect instead of plain black.
+
+    Particle System ("Juice"):
+
+        Create a Particle class and a ParticleSystem within the GameEngine.
+
+        Trigger: When Pac-Man eats a pellet, spawn small sparks.
+
+        Trigger: When a Ghost is eaten, trigger a large "explosion" of particles matching the ghost's color.
+
+        Trigger: When Pac-Man dies, playing a disintegration effect.
+
+    New Gameplay Mechanics (Modern Twist):
+
+        Sprint Mechanic: Allow the player to hold Shift to move 50% faster for a short duration (add a "Stamina Bar" to the UI overlay).
+
+        New Power-Ups: randomly spawn a "Fruit" item that, when eaten, freezes all ghosts in place for 5 seconds (Ice Effect).
+
+    Technical Implementation:
+
+        Modify GameEngine.js to include the particle update/draw loop.
+
+        Update GameCanvas.jsx or ScoreBoard.jsx to render the new Stamina Bar (pass stamina value via callback).
+
+        Ensure the particle rendering does not drag the frame rate below 60fps (cull particles when they fade out).
+
+Deliverables:
+
+    Updated GameEngine.js (incorporating particles, glow styles, and sprint logic).
+
+    Updated ScoreBoard.jsx (adding the visual Stamina meter).
+
+    A summary of the changes made.
+
+Goal: Transform the game from a "clone" into a "modern retro remix" that feels highly responsive and visually exciting.

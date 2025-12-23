@@ -1,0 +1,53 @@
+Role & Objective: Act as a Senior Frontend Engineer. Refactor the Vanilla JS Pac-Man game code above into a modular, production-ready React application using Vite.
+
+Project Structure & Architecture:
+
+    Framework: React 18+ (Functional Components with Hooks).
+
+    Build Tool: Vite.
+
+    Styling: CSS Modules or Tailwind CSS (your preference).
+
+    File Structure: Break the monolithic code into logical files:
+
+        /src/components: UI components (Scoreboard, GameOverScreen).
+
+        /src/game: The core game engine logic (non-React classes).
+
+        /src/hooks: Custom hooks for game loop or input.
+
+Key Refactoring Instructions (Critical):
+
+    Separation of Concerns: Do not put the game loop or entity positions into React State (useState). This will cause performance issues due to excessive re-rendering.
+
+        Create a pure JavaScript class (e.g., GameEngine.js) to handle the game loop (requestAnimationFrame), physics, and collision detection.
+
+        Use a useRef to access the <canvas> element and pass it to the GameEngine.
+
+        Only use React State for UI overlays (e.g., score, lives, isGameOver, isPaused). The GameEngine should emit events or call callbacks to update these specific React states.
+
+    Third-Party Libraries:
+
+        You may use react-use for input handling (e.g., useKey) if it simplifies code.
+
+        You may use framer-motion for the "Game Over" or "Start" screen animations.
+
+Component Requirements:
+
+    GameCanvas.jsx: Wraps the HTML5 Canvas. Initializes the GameEngine in a useEffect.
+
+    ScoreBoard.jsx: Displays current score and high score.
+
+    App.jsx: The main layout container.
+
+Deliverables: Provide the code split into multiple file blocks.
+
+    package.json (listing dependencies).
+
+    src/game/GameEngine.js (The logic refactored from the previous code).
+
+    src/components/GameCanvas.jsx (The React wrapper).
+
+    src/App.jsx (The entry point).
+
+Goal: Clean, maintainable code that keeps the 60FPS performance of the original while leveraging React for the UI.
