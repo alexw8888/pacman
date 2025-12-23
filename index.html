@@ -32,7 +32,7 @@
 </head>
 
 <body>
-    <div id="ui">Score: <span id="score">0</span></div>
+    <div id="ui">Score: <span id="score">0</span> &nbsp; Lives: <span id="lives">10</span></div>
     <canvas id="gameCanvas"></canvas>
 
     <script>
@@ -66,7 +66,7 @@
         // --- Map Data (Classic-ish Layout) ---
         // 0: Wall, 1: Pellet, 2: Power, 3: Empty, 4: Gate
         // 28 cols x 31 rows
-        const mapLayout = [
+        const INITIAL_MAP_LAYOUT = [
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0],
@@ -290,8 +290,8 @@
 
                 // Try to turn
                 if (this.nextDir !== NONE && this.canMove(this.nextDir)) {
-                    // Only turn if perfectly aligned with grid
-                    if (this.x % TILE_SIZE === 0 && this.y % TILE_SIZE === 0) {
+                    // Only turn if perfectly aligned with grid, OR if we are currently stopped (so we can start moving)
+                    if ((this.x % TILE_SIZE === 0 && this.y % TILE_SIZE === 0) || this.currentDir === NONE) {
                         this.currentDir = this.nextDir;
                         this.nextDir = NONE;
                     }
@@ -327,10 +327,10 @@
                         let tile = this.map.layout[r][c];
                         if (tile === PELLET) {
                             this.map.layout[r][c] = EMPTY;
-                            game.addScore(10);
+                            game.pelletEaten(10);
                         } else if (tile === POWER_PELLET) {
                             this.map.layout[r][c] = EMPTY;
-                            game.addScore(50);
+                            game.pelletEaten(50);
                             game.activatePowerMode();
                         }
                     }
@@ -401,13 +401,13 @@
                 this.color = color;
                 this.type = type; // 0: Red, 1: Pink, 2: Cyan, 3: Orange
                 this.map = map;
-                this.speed = 1;
+                this.speed = 1; // Normal speed
                 this.dir = NONE;
                 this.nextDir = NONE;
-                this.mode = 'SCATTER'; // SCATTER, CHASE, FRIGHTENED, EATEN, HOUSE
-
-                // Init direction
-                this.dir = [LEFT, RIGHT][Math.floor(Math.random() * 2)];
+                // Mode: SCATTER, CHASE, FRIGHTENED, EATEN, HOUSE, EXITING
+                this.mode = 'HOUSE';
+                // Initial direction inside house (VERTICAL)
+                this.dir = [UP, DOWN][Math.floor(Math.random() * 2)];
             }
 
             update(targetX, targetY) {
@@ -415,84 +415,163 @@
                 if (this.x < -TILE_SIZE) this.x = CANVAS_WIDTH;
                 if (this.x > CANVAS_WIDTH) this.x = -TILE_SIZE;
 
+                let currentSpeed = this.speed;
+                if (this.mode === 'EATEN') currentSpeed = 4; // Fast eyes
+                else if (this.mode === 'FRIGHTENED') currentSpeed = 0.5;
+
                 // Move
-                switch (this.dir) {
-                    case UP: this.y -= this.speed; break;
-                    case DOWN: this.y += this.speed; break;
-                    case LEFT: this.x -= this.speed; break;
-                    case RIGHT: this.x += this.speed; break;
+                for (let i = 0; i < currentSpeed; i++) {
+                    this.moveStep(targetX, targetY);
+                    if (this.x % TILE_SIZE === 0 && this.y % TILE_SIZE === 0) break;
+                }
+            }
+
+            moveStep(targetX, targetY) {
+                // Special State Handling (Check BEFORE move)
+                if (this.mode === 'HOUSE') {
+                    // Bounce logic (Pixel based)
+                    // House Y range approx: 13*16 (208) to 15*16 (240)
+                    // Keep between 216 (13.5) and 232 (14.5) approx
+                    const minY = 13.5 * TILE_SIZE;
+                    const maxY = 14.5 * TILE_SIZE;
+
+                    if (this.dir === UP && this.y <= minY) this.dir = DOWN;
+                    else if (this.dir === DOWN && this.y >= maxY) this.dir = UP;
+                }
+                else if (this.mode === 'EXITING') {
+                    // Naviagte to Center X then UP
+                    const centerX = 13.5 * TILE_SIZE;
+                    const exitY = 11 * TILE_SIZE; // Target outside
+
+                    if (Math.abs(this.x - centerX) > 1) {
+                        if (this.x < centerX) this.dir = RIGHT;
+                        else this.dir = LEFT;
+                    } else {
+                        this.x = centerX; // Snap X
+                        if (this.y > exitY) this.dir = UP;
+                        else {
+                            // Exited
+                            this.mode = 'SCATTER'; // Or global mode
+                            this.dir = LEFT; // Break LEFT usually
+                            this.y = exitY; // Snap Y
+                        }
+                    }
                 }
 
-                // AI Decision making at intersection/center of tile
-                if (this.x % TILE_SIZE === 0 && this.y % TILE_SIZE === 0) {
-                    let validDirs = [];
+                // Apply Movement
+                switch (this.dir) {
+                    case UP: this.y -= 1; break;
+                    case DOWN: this.y += 1; break;
+                    case LEFT: this.x -= 1; break;
+                    case RIGHT: this.x += 1; break;
+                }
 
-                    // Helper to check validity
-                    const isValid = (d) => {
-                        let nr = this.row();
-                        let nc = this.col();
-                        if (d === UP) nr--;
-                        if (d === DOWN) nr++;
-                        if (d === LEFT) nc--;
-                        if (d === RIGHT) nc++;
-                        return !this.map.isWall(nr, nc) && !this.map.isGate(nr, nc);
-                    };
+                // Regular Grid Decision (SCATTER, CHASE, FRIGHTENED, EATEN)
+                // Only at intersection
+                if (this.mode !== 'HOUSE' && this.mode !== 'EXITING') {
+                    if (this.x % TILE_SIZE === 0 && this.y % TILE_SIZE === 0) {
+                        this.decideDirection(targetX, targetY);
+                    }
+                }
+            }
 
-                    // Check all 4 dirs
-                    if (isValid(UP) && this.dir !== DOWN) validDirs.push(UP);
-                    if (isValid(DOWN) && this.dir !== UP) validDirs.push(DOWN);
-                    if (isValid(LEFT) && this.dir !== RIGHT) validDirs.push(LEFT);
-                    if (isValid(RIGHT) && this.dir !== LEFT) validDirs.push(RIGHT);
+            decideDirection(targetX, targetY) {
+                let validDirs = [];
 
-                    if (validDirs.length === 0) {
-                        // Dead end 
-                        if (this.dir === UP) this.dir = DOWN;
-                        else if (this.dir === DOWN) this.dir = UP;
-                        else if (this.dir === LEFT) this.dir = RIGHT;
-                        else if (this.dir === RIGHT) this.dir = LEFT;
+                // Helper to check validity
+                const isValid = (d) => {
+                    let nr = this.row();
+                    let nc = this.col();
+                    if (d === UP) nr--;
+                    if (d === DOWN) nr++;
+                    if (d === LEFT) nc--;
+                    if (d === RIGHT) nc++;
+
+                    // Allow Gate if EATEN (Entering)
+                    let isGate = this.map.isGate(nr, nc);
+                    if (isGate) {
+                        if (this.mode === 'EATEN') return true;
+                        return false;
+                    }
+
+                    return !this.map.isWall(nr, nc);
+                };
+
+                // Check all 4 dirs
+                if (isValid(UP) && this.dir !== DOWN) validDirs.push(UP);
+                if (isValid(DOWN) && this.dir !== UP) validDirs.push(DOWN);
+                if (isValid(LEFT) && this.dir !== RIGHT) validDirs.push(LEFT);
+                if (isValid(RIGHT) && this.dir !== LEFT) validDirs.push(RIGHT);
+
+                if (validDirs.length === 0) {
+                    // Dead end 
+                    if (this.dir === UP) this.dir = DOWN;
+                    else if (this.dir === DOWN) this.dir = UP;
+                    else if (this.dir === LEFT) this.dir = RIGHT;
+                    else if (this.dir === RIGHT) this.dir = LEFT;
+                    return;
+                }
+
+                // Choose best direction based on target
+                let bestDir = validDirs[0];
+                let minDist = Infinity;
+
+                // Determine target based on mode
+                let tx = targetX;
+                let ty = targetY;
+
+                if (this.mode === 'SCATTER') {
+                    // scatter to corners
+                    if (this.type === 0) { tx = CANVAS_WIDTH - TILE_SIZE; ty = 0; } // Top Right
+                    else if (this.type === 1) { tx = 0; ty = 0; } // Top Left
+                    else if (this.type === 2) { tx = CANVAS_WIDTH; ty = CANVAS_HEIGHT; } // Bottom Right
+                    else if (this.type === 3) { tx = 0; ty = CANVAS_HEIGHT; } // Bottom Left
+                } else if (this.mode === 'FRIGHTENED') {
+                    // Random
+                    this.dir = validDirs[Math.floor(Math.random() * validDirs.length)];
+                    return; // Done
+                } else if (this.mode === 'EATEN') {
+                    // Return to inside house (Center)
+                    tx = 13.5 * TILE_SIZE;
+                    ty = 14 * TILE_SIZE;
+
+                    // Check if we arrived (approx)
+                    // Since EATEN eyes travel on grid, they eventually hit 13.5?
+                    // No, grid is integers. 13.5 is half.
+                    // Closest integer node is (13,11) index outside gate.
+                    // We need EATEN to enter gate (13,12) (which is 13.5?)
+                    // Gate is at col 13?
+                    // Map: 4,4,4,4. Cols 12,13,14,15.
+                    // Center is 13.5.
+                    // Target: 13.5 * 16.
+                    // Standard logic moves on grid lines.
+                    // Eyes should target (13.5, 11) (Outside gate).
+
+                    let homeX = 13.5 * TILE_SIZE;
+                    let homeY = 11 * TILE_SIZE; // Just outside gate
+
+                    if (Math.abs(this.x - homeX) < TILE_SIZE && Math.abs(this.y - homeY) < TILE_SIZE) {
+                        // Arrived at door, enter house mode or force down?
+                        // Let's just revive here for simplicity
+                        this.mode = 'SCATTER'; // Instant revive at door
                         return;
                     }
 
-                    // Choose best direction based on target
-                    let bestDir = validDirs[0];
-                    let minDist = Infinity;
-
-                    // Determine target based on mode
-                    let tx = targetX;
-                    let ty = targetY;
-
-                    if (this.mode === 'SCATTER') {
-                        // scatter to corners
-                        if (this.type === 0) { tx = CANVAS_WIDTH - TILE_SIZE; ty = 0; } // Top Right
-                        else if (this.type === 1) { tx = 0; ty = 0; } // Top Left
-                        else if (this.type === 2) { tx = CANVAS_WIDTH; ty = CANVAS_HEIGHT; } // Bottom Right
-                        else if (this.type === 3) { tx = 0; ty = CANVAS_HEIGHT; } // Bottom Left
-                    } else if (this.mode === 'FRIGHTENED') {
-                        // Random
-                        this.dir = validDirs[Math.floor(Math.random() * validDirs.length)];
-                        return; // Done
-                    } else if (this.mode === 'EATEN') {
-                        // Return to center
-                        tx = 13.5 * TILE_SIZE;
-                        ty = 14 * TILE_SIZE;
-                        // If close to home, respawn
-                        if (Math.hypot(this.x - tx, this.y - ty) < TILE_SIZE) {
-                            this.mode = 'SCATTER'; // Respawned
-                        }
-                    }
-
-                    validDirs.forEach(d => {
-                        let nextX = this.x + (d === LEFT ? -TILE_SIZE : (d === RIGHT ? TILE_SIZE : 0));
-                        let nextY = this.y + (d === UP ? -TILE_SIZE : (d === DOWN ? TILE_SIZE : 0));
-                        let dist = Math.hypot(nextX - tx, nextY - ty);
-                        if (dist < minDist) {
-                            minDist = dist;
-                            bestDir = d;
-                        }
-                    });
-
-                    this.dir = bestDir;
+                    tx = homeX;
+                    ty = homeY;
                 }
+
+                validDirs.forEach(d => {
+                    let nextX = this.x + (d === LEFT ? -TILE_SIZE : (d === RIGHT ? TILE_SIZE : 0));
+                    let nextY = this.y + (d === UP ? -TILE_SIZE : (d === DOWN ? TILE_SIZE : 0));
+                    let dist = Math.hypot(nextX - tx, nextY - ty);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        bestDir = d;
+                    }
+                });
+
+                this.dir = bestDir;
             }
 
             row() { return Math.round(this.y / TILE_SIZE); }
@@ -534,15 +613,33 @@
                 this.score = 0;
                 this.input = new InputHandler();
                 this.audio = new AudioController();
-                this.map = new Map(mapLayout);
-                this.pacman = new Pacman(13.5, 23, this.map);
+                this.map = new Map(JSON.parse(JSON.stringify(INITIAL_MAP_LAYOUT)));
+                // Count pellets
+                this.pelletCount = 0;
+                for (let r = 0; r < GRID_HEIGHT; r++) {
+                    for (let c = 0; c < GRID_WIDTH; c++) {
+                        if (this.map.layout[r][c] === PELLET || this.map.layout[r][c] === POWER_PELLET) {
+                            this.pelletCount++;
+                        }
+                    }
+                }
+                this.pacman = new Pacman(13.5, 22, this.map);
+                this.lives = 3;
 
+                // Fixed spawn definitions to correct tiles
                 this.ghosts = [
-                    new Ghost(13.5, 11, 'red', 0, this.map), // Blinky
-                    new Ghost(13.5, 14, 'pink', 1, this.map), // Pinky
-                    new Ghost(11.5, 14, 'cyan', 2, this.map), // Inky
-                    new Ghost(15.5, 14, 'orange', 3, this.map) // Clyde
+                    new Ghost(13.5, 11, 'red', 0, this.map), // Blinky (Outside gate)
+                    new Ghost(13.5, 14, 'pink', 1, this.map), // Pinky (Inside)
+                    new Ghost(11.5, 14, 'cyan', 2, this.map), // Inky (Inside)
+                    new Ghost(15.5, 14, 'orange', 3, this.map) // Clyde (Inside)
                 ];
+
+                // Initialize Modes
+                this.ghosts[0].mode = 'SCATTER';
+                this.ghosts[0].dir = [LEFT, RIGHT][Math.floor(Math.random() * 2)]; // Force horizontal
+                this.ghosts[1].mode = 'HOUSE';
+                this.ghosts[2].mode = 'HOUSE';
+                this.ghosts[3].mode = 'HOUSE';
 
                 this.state = 'READY'; // READY, PLAYING, GAMEOVER
                 this.lastTime = 0;
@@ -552,6 +649,10 @@
                 // Global Scatter/Chase timer
                 this.modeTimer = 0;
                 this.globalMode = 'SCATTER';
+
+                // Ghost Release Timer
+                this.ghostReleaseTimer = 0;
+                this.ghostsReleased = 1; // Blinky is out
 
                 // Listen for Start
                 window.addEventListener('keydown', (e) => {
@@ -568,12 +669,46 @@
             resetGame() {
                 this.score = 0;
                 document.getElementById('score').innerText = 0;
-                if (this.state === 'GAMEOVER') location.reload();
+                this.lives = 3;
+                document.getElementById('lives').innerText = this.lives;
+
+                // Reuse level reset logic to restore map and entities
+                this.nextLevel();
             }
 
             addScore(pts) {
                 this.score += pts;
                 document.getElementById('score').innerText = this.score;
+            }
+
+            pelletEaten(pts) {
+                this.addScore(pts);
+                this.pelletCount--;
+                if (this.pelletCount <= 0) {
+                    setTimeout(() => this.nextLevel(), 500);
+                }
+            }
+
+            nextLevel() {
+                // Restore map
+                this.map = new Map(JSON.parse(JSON.stringify(INITIAL_MAP_LAYOUT)));
+
+                // Reset Pellet Count
+                this.pelletCount = 0;
+                for (let r = 0; r < GRID_HEIGHT; r++) {
+                    for (let c = 0; c < GRID_WIDTH; c++) {
+                        if (this.map.layout[r][c] === PELLET || this.map.layout[r][c] === POWER_PELLET) {
+                            this.pelletCount++;
+                        }
+                    }
+                }
+
+                // Reset entities
+                this.softReset();
+
+                // Need to re-bind map to pacman and ghosts since map object changed
+                this.pacman.map = this.map;
+                this.ghosts.forEach(g => g.map = this.map);
             }
 
             activatePowerMode() {
@@ -587,7 +722,8 @@
                 }, 8000);
 
                 this.ghosts.forEach(g => {
-                    if (g.mode !== 'EATEN') g.mode = 'FRIGHTENED';
+                    // Don't frighten eaten/house ghosts
+                    if (g.mode !== 'EATEN' && g.mode !== 'HOUSE' && g.mode !== 'EXITING') g.mode = 'FRIGHTENED';
                 });
             }
 
@@ -598,17 +734,29 @@
             update(dt) {
                 if (this.state !== 'PLAYING') return;
 
+                // Ghost Release Logic
+                this.ghostReleaseTimer += dt;
+                if (this.ghostsReleased < 4 && this.ghostReleaseTimer > 5000) { // Release every 5 seconds
+                    // Find a ghost in HOUSE
+                    let g = this.ghosts.find(gh => gh.mode === 'HOUSE');
+                    if (g) {
+                        g.mode = 'EXITING';
+                        this.ghostsReleased++;
+                        this.ghostReleaseTimer = 0;
+                    }
+                }
+
                 // Mode switching (7s Scatter / 20s Chase simple loop)
                 this.modeTimer += dt;
                 if (!this.powerMode) {
                     if (this.globalMode === 'SCATTER' && this.modeTimer > 7000) {
                         this.globalMode = 'CHASE';
                         this.modeTimer = 0;
-                        this.ghosts.forEach(g => { if (g.mode !== 'EATEN') g.mode = 'CHASE'; });
+                        this.ghosts.forEach(g => { if (g.mode !== 'EATEN' && g.mode !== 'FRIGHTENED' && g.mode !== 'HOUSE' && g.mode !== 'EXITING') g.mode = 'CHASE'; });
                     } else if (this.globalMode === 'CHASE' && this.modeTimer > 20000) {
                         this.globalMode = 'SCATTER';
                         this.modeTimer = 0;
-                        this.ghosts.forEach(g => { if (g.mode !== 'EATEN') g.mode = 'SCATTER'; });
+                        this.ghosts.forEach(g => { if (g.mode !== 'EATEN' && g.mode !== 'FRIGHTENED' && g.mode !== 'HOUSE' && g.mode !== 'EXITING') g.mode = 'SCATTER'; });
                     }
                 }
 
@@ -631,7 +779,13 @@
                             this.audio.playEatGhost();
                         } else if (g.mode !== 'EATEN') {
                             this.audio.playDie();
-                            this.state = 'GAMEOVER';
+                            this.lives--;
+                            document.getElementById('lives').innerText = this.lives;
+                            if (this.lives > 0) {
+                                this.softReset();
+                            } else {
+                                this.state = 'GAMEOVER';
+                            }
                         }
                     }
                 });
@@ -674,6 +828,27 @@
                 this.draw();
 
                 requestAnimationFrame((t) => this.loop(t));
+            }
+
+            softReset() {
+                // Reset Ghosts positions & modes
+                this.ghosts = [
+                    new Ghost(13.5, 11, 'red', 0, this.map),
+                    new Ghost(13.5, 14, 'pink', 1, this.map),
+                    new Ghost(11.5, 14, 'cyan', 2, this.map),
+                    new Ghost(15.5, 14, 'orange', 3, this.map)
+                ];
+                this.ghosts[0].mode = 'SCATTER';
+                this.ghosts[0].dir = [LEFT, RIGHT][Math.floor(Math.random() * 2)]; // Force Blinky Horizontal
+
+                this.pacman = new Pacman(13.5, 22, this.map);
+
+                this.ghostsReleased = 1;
+                this.ghostReleaseTimer = 0;
+                this.modeTimer = 0;
+                this.globalMode = 'SCATTER';
+                this.powerMode = false;
+                clearTimeout(this.powerTimer);
             }
         }
 
