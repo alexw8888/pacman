@@ -364,16 +364,49 @@
 
                 // Try to change direction if we have a buffered input
                 if (this.nextDirection !== DIRECTIONS.NONE) {
-                    if (this.canMove(this.nextDirection, map)) {
-                        this.direction = this.nextDirection;
-                        this.nextDirection = DIRECTIONS.NONE;
+                    // Check if the next tile in the buffered direction is walkable
+                    const canTurn = this.canTurnToDirection(this.nextDirection, map);
+                    const nearCenter = this.isNearTileCenter();
+
+                    // Determine if this is a perpendicular turn
+                    const isPerpendicular = (
+                        (this.direction.x !== 0 && this.nextDirection.y !== 0) ||
+                        (this.direction.y !== 0 && this.nextDirection.x !== 0)
+                    );
+
+                    console.log(`[UPDATE] Buffered dir: (${this.nextDirection.x},${this.nextDirection.y}), canTurn: ${canTurn}, nearCenter: ${nearCenter}, isPerpendicular: ${isPerpendicular}`);
+
+                    // For perpendicular turns, require being near tile center AND tile being walkable
+                    if (canTurn && nearCenter) {
+                        // Snap to tile center on BOTH axes when making perpendicular turns
+                        // This ensures the hitbox is fully aligned and won't clip into adjacent walls
+                        if (isPerpendicular) {
+                            this.snapToTileCenter('both');
+                            console.log(`[UPDATE] Snapped to center: (${this.x}, ${this.y})`)
+                        }
+
+                        // Final check: verify we can actually move in the new direction after snapping
+                        if (this.canMove(this.nextDirection, map)) {
+                            this.direction = this.nextDirection;
+                            this.nextDirection = DIRECTIONS.NONE;
+                            console.log('[UPDATE] Applied buffered direction');
+                        } else {
+                            console.log('[UPDATE] canMove failed after snap, keeping buffer');
+                        }
                     }
+                    // Keep nextDirection buffered if we can't turn yet
                 }
 
-                // Move in current direction
-                if (this.direction !== DIRECTIONS.NONE && this.canMove(this.direction, map)) {
+                // Move in current direction (continue moving even if buffered direction is blocked)
+                const canMoveCurrent = this.direction !== DIRECTIONS.NONE && this.canMove(this.direction, map);
+                const dirName = this.getDirectionName(this.direction);
+                const nextDirName = this.getDirectionName(this.nextDirection);
+
+                if (canMoveCurrent) {
                     this.x += this.direction.x * this.speed;
                     this.y += this.direction.y * this.speed;
+                } else if (this.direction !== DIRECTIONS.NONE) {
+                    console.log(`[STUCK] pos: (${this.x.toFixed(1)}, ${this.y.toFixed(1)}), tile: (${Math.floor(this.x / TILE_SIZE)}, ${Math.floor(this.y / TILE_SIZE)}), dir: ${dirName}, nextDir: ${nextDirName}, canMoveCurrent: ${canMoveCurrent}`);
                 }
 
                 // Handle tunnel wrapping
@@ -408,10 +441,78 @@
                 return true;
             }
 
-            setDirection(direction) {
-                this.nextDirection = direction;
-                if (this.direction === DIRECTIONS.NONE) {
+            // Check if the tile in the given direction from current tile is walkable
+            canTurnToDirection(direction, map) {
+                const tileX = Math.floor(this.x / TILE_SIZE);
+                const tileY = Math.floor(this.y / TILE_SIZE);
+                const nextTileX = tileX + direction.x;
+                const nextTileY = tileY + direction.y;
+                return map.isWalkable(nextTileX, nextTileY);
+            }
+
+            // Check if Pac-Man is close enough to tile center to make a turn
+            isNearTileCenter() {
+                const tileX = Math.floor(this.x / TILE_SIZE);
+                const tileY = Math.floor(this.y / TILE_SIZE);
+                const tileCenterX = tileX * TILE_SIZE + TILE_SIZE / 2;
+                const tileCenterY = tileY * TILE_SIZE + TILE_SIZE / 2;
+                const threshold = this.speed + 1; // Allow some tolerance
+                return Math.abs(this.x - tileCenterX) <= threshold &&
+                    Math.abs(this.y - tileCenterY) <= threshold;
+            }
+
+            // Snap to tile center (for perpendicular turns)
+            snapToTileCenter(axis) {
+                const tileX = Math.floor(this.x / TILE_SIZE);
+                const tileY = Math.floor(this.y / TILE_SIZE);
+                if (axis === 'x' || axis === 'both') {
+                    this.x = tileX * TILE_SIZE + TILE_SIZE / 2;
+                }
+                if (axis === 'y' || axis === 'both') {
+                    this.y = tileY * TILE_SIZE + TILE_SIZE / 2;
+                }
+            }
+
+            getDirectionName(dir) {
+                if (dir === DIRECTIONS.UP) return 'UP';
+                if (dir === DIRECTIONS.DOWN) return 'DOWN';
+                if (dir === DIRECTIONS.LEFT) return 'LEFT';
+                if (dir === DIRECTIONS.RIGHT) return 'RIGHT';
+                return 'NONE';
+            }
+
+            setDirection(direction, map) {
+                const reqDirName = this.getDirectionName(direction);
+                const currDirName = this.getDirectionName(this.direction);
+                console.log(`[INPUT] Requested: ${reqDirName}, Current: ${currDirName}, pos: (${this.x.toFixed(1)}, ${this.y.toFixed(1)})`);
+
+                // Check if this is a 180-degree turn (opposite direction) - always allow reversal
+                const isOpposite = (
+                    (this.direction === DIRECTIONS.UP && direction === DIRECTIONS.DOWN) ||
+                    (this.direction === DIRECTIONS.DOWN && direction === DIRECTIONS.UP) ||
+                    (this.direction === DIRECTIONS.LEFT && direction === DIRECTIONS.RIGHT) ||
+                    (this.direction === DIRECTIONS.RIGHT && direction === DIRECTIONS.LEFT)
+                );
+
+                if (isOpposite) {
+                    // Immediately reverse direction
+                    console.log('[INPUT] Immediate reversal');
                     this.direction = direction;
+                    this.nextDirection = DIRECTIONS.NONE;
+                } else if (this.direction === DIRECTIONS.NONE) {
+                    // Starting from standstill - only set direction if we can actually move that way
+                    const canMove = map && this.canMove(direction, map);
+                    console.log(`[INPUT] From standstill, canMove: ${canMove}`);
+                    if (canMove) {
+                        this.direction = direction;
+                    } else {
+                        // Buffer it for when we can move
+                        this.nextDirection = direction;
+                    }
+                } else {
+                    // Buffer the direction change for when a valid path opens
+                    console.log(`[INPUT] Buffering ${reqDirName}`);
+                    this.nextDirection = direction;
                 }
             }
 
@@ -784,22 +885,22 @@
                     switch (e.code) {
                         case 'ArrowUp':
                         case 'KeyW':
-                            this.pacman.setDirection(DIRECTIONS.UP);
+                            this.pacman.setDirection(DIRECTIONS.UP, this.map);
                             e.preventDefault();
                             break;
                         case 'ArrowDown':
                         case 'KeyS':
-                            this.pacman.setDirection(DIRECTIONS.DOWN);
+                            this.pacman.setDirection(DIRECTIONS.DOWN, this.map);
                             e.preventDefault();
                             break;
                         case 'ArrowLeft':
                         case 'KeyA':
-                            this.pacman.setDirection(DIRECTIONS.LEFT);
+                            this.pacman.setDirection(DIRECTIONS.LEFT, this.map);
                             e.preventDefault();
                             break;
                         case 'ArrowRight':
                         case 'KeyD':
-                            this.pacman.setDirection(DIRECTIONS.RIGHT);
+                            this.pacman.setDirection(DIRECTIONS.RIGHT, this.map);
                             e.preventDefault();
                             break;
                     }
