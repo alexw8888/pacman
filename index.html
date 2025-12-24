@@ -63,6 +63,13 @@
         const COLOR_PACMAN = '#FFFF00';
         const COLOR_BG = '#000000';
 
+        // --- RPG Constants ---
+        const XP_PER_PELLET = 10;
+        const XP_PER_GHOST = 200;
+        const BASE_XP_TO_LEVEL = 500;
+        const XP_SCALAR = 1.2; // Increase XP requirement by 20% each level
+
+
         // --- Map Data (Classic-ish Layout) ---
         // 0: Wall, 1: Pellet, 2: Power, 3: Empty, 4: Gate
         // 28 cols x 31 rows
@@ -113,6 +120,10 @@
         class InputHandler {
             constructor() {
                 this.lastKeyPressed = NONE;
+                this.mouseX = 0;
+                this.mouseY = 0;
+                this.mouseClicked = false;
+
                 window.addEventListener('keydown', (e) => {
                     switch (e.code) {
                         case 'ArrowUp': this.lastKeyPressed = UP; break;
@@ -121,16 +132,28 @@
                         case 'ArrowRight': this.lastKeyPressed = RIGHT; break;
                     }
                 });
+
+                // Mouse Handling for UI
+                const canvas = document.getElementById('gameCanvas');
+                canvas.addEventListener('mousemove', (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    this.mouseX = e.clientX - rect.left;
+                    this.mouseY = e.clientY - rect.top;
+                });
+
+                canvas.addEventListener('click', () => {
+                    this.mouseClicked = true;
+                });
             }
 
             getDirection() {
                 return this.lastKeyPressed;
             }
 
-            clearInput() {
-                // We keep the input in buffer until a turn is made? 
-                // Alternatively, we leave it as is for continuous movement.
-                // For buffered input, we just read lastKeyPressed.
+            getMouseStatus() {
+                const status = { x: this.mouseX, y: this.mouseY, clicked: this.mouseClicked };
+                this.mouseClicked = false; // Reset click
+                return status;
             }
         }
 
@@ -318,7 +341,54 @@
                         if (game && game.audio) game.audio.playChomp();
                     }
 
-                    // Eat Pellets
+                    // Perk: TRAIL BLAZER
+                    if (game.perks.includes('trail_blazer')) {
+                        const r = Math.round(this.y / TILE_SIZE);
+                        const c = Math.round(this.x / TILE_SIZE);
+                        if (!game.fireTiles.find(f => f.r === r && f.c === c)) {
+                            game.fireTiles.push({ r, c, life: 4000 });
+                        }
+                    }
+
+                    // Perk: MAGNETISM
+                    if (game.perks.includes('magnetism')) {
+                        const magRange = 3; // Tiles
+                        // Scan area around pacman
+                        let centerR = Math.round(this.y / TILE_SIZE);
+                        let centerC = Math.round(this.x / TILE_SIZE);
+
+                        for (let r = centerR - magRange; r <= centerR + magRange; r++) {
+                            for (let c = centerC - magRange; c <= centerC + magRange; c++) {
+                                if (r >= 0 && r < GRID_HEIGHT && c >= 0 && c < GRID_WIDTH) {
+                                    if (this.map.layout[r][c] === PELLET || this.map.layout[r][c] === POWER_PELLET) {
+                                        // "Pull" visual isn't easy with grid array.
+                                        // For now, simpler: Instant eat if effectively close, or just expand eat radius?
+                                        // The prompt says "fly toward Pac-Man".
+                                        // To do that, we'd need Pellet objects. Currently map is just integers.
+                                        // Compromise: Instant eat in radius (Super Magnet).
+                                        // Or, convert integer to "FlyingPellet" object ONLY when in range?
+                                        // Let's go with "Vacuum Mode": Eat anything in 3 tile radius immediately.
+                                        // Actually, let's make it look cool later if time permits. "Vacuum" is functionally "Magnetism" for grid.
+
+                                        // Dist check
+                                        let dist = Math.hypot(c * TILE_SIZE - this.x, r * TILE_SIZE - this.y);
+                                        if (dist < magRange * TILE_SIZE) {
+                                            // Suck it in
+                                            let tile = this.map.layout[r][c];
+                                            this.map.layout[r][c] = EMPTY;
+                                            if (tile === PELLET) game.pelletEaten(10);
+                                            if (tile === POWER_PELLET) {
+                                                game.pelletEaten(50);
+                                                game.activatePowerMode();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Eat Pellets (Standard Collision)
                     // Check overlap
                     // Center of pacman vs center of tile
                     if (this.x % TILE_SIZE === 0 && this.y % TILE_SIZE === 0) {
@@ -336,6 +406,7 @@
                     }
                 }
             }
+
 
             canMove(direction) {
                 let r = Math.floor(this.y / TILE_SIZE);
@@ -408,6 +479,7 @@
                 this.mode = 'HOUSE';
                 // Initial direction inside house (VERTICAL)
                 this.dir = [UP, DOWN][Math.floor(Math.random() * 2)];
+                this.speedAccumulator = 0;
             }
 
             update(targetX, targetY) {
@@ -419,10 +491,26 @@
                 if (this.mode === 'EATEN') currentSpeed = 4; // Fast eyes
                 else if (this.mode === 'FRIGHTENED') currentSpeed = 0.5;
 
-                // Move
-                for (let i = 0; i < currentSpeed; i++) {
+                this.speedAccumulator += currentSpeed;
+
+                while (this.speedAccumulator >= 1) {
                     this.moveStep(targetX, targetY);
-                    if (this.x % TILE_SIZE === 0 && this.y % TILE_SIZE === 0) break;
+                    this.speedAccumulator -= 1;
+                    // Optimization: Snap if crossed tile center? 
+                    // Existing logic relies on x % TILE_SIZE === 0 checks.
+                    // If we move multiple pixels in one frame, we might skip the exact 0 alignment?
+                    // moveStep moves 1 pixel.
+                    // If we call it multiple times, we move multiple pixels.
+                    // It should be fine as long as we don't overshoot turn points.
+                    // But moveStep calls decideDirection only at 0.
+                    // If we move 2 pixels from -1 to 1, we skip 0.
+                    // We must ensure we hit 0. 
+                    // Actually, existing logic:
+                    // case UP: this.y -= 1;
+                    // decision: if (this.x % TILE_SIZE === 0 ...)
+
+                    // If we step 1 by 1, we will hit 0.
+                    // So this loop is safe.
                 }
             }
 
@@ -611,6 +699,17 @@
         class Game {
             constructor() {
                 this.score = 0;
+
+                // RPG State
+                this.level = 1;
+                this.xp = 0;
+                this.xpMax = BASE_XP_TO_LEVEL;
+                this.perks = [];
+                this.offeredPerks = [];
+                this.fireTiles = [];
+                this.projectiles = [];
+                this.bulletTimer = 0;
+
                 this.input = new InputHandler();
                 this.audio = new AudioController();
                 this.map = new Map(JSON.parse(JSON.stringify(INITIAL_MAP_LAYOUT)));
@@ -641,7 +740,15 @@
                 this.ghosts[2].mode = 'HOUSE';
                 this.ghosts[3].mode = 'HOUSE';
 
-                this.state = 'READY'; // READY, PLAYING, GAMEOVER
+                this.state = 'READY'; // READY, PLAYING, GAMEOVER, LEVEL_UP
+
+                // RPG State
+                this.level = 1;
+                this.xp = 0;
+                this.xpMax = BASE_XP_TO_LEVEL;
+                this.perks = [];
+                this.offeredPerks = []; // Perls shown in menu
+
                 this.lastTime = 0;
                 this.powerMode = false;
                 this.powerTimer = 0;
@@ -679,7 +786,41 @@
             addScore(pts) {
                 this.score += pts;
                 document.getElementById('score').innerText = this.score;
+                this.gainXp(pts); // XP matches score usage mostly
             }
+
+            gainXp(amount) {
+                if (this.state !== 'PLAYING') return;
+                this.xp += amount;
+                if (this.xp >= this.xpMax) {
+                    this.triggerLevelUp();
+                }
+            }
+
+            triggerLevelUp() {
+                this.state = 'LEVEL_UP';
+                this.xp = this.xp - this.xpMax; // Carry over overflow
+                this.xpMax = Math.floor(this.xpMax * XP_SCALAR);
+                this.level++;
+                this.generatePerkOptions();
+            }
+
+            generatePerkOptions() {
+                // TODO: Populate this.offeredPerks with actual Perk objects
+                // For now placeholders
+                this.offeredPerks = [
+                    { id: 'trail_blazer', name: 'Trail Blazer', desc: 'Leave a trail of fire.' },
+                    { id: 'magnetism', name: 'Magnetism', desc: 'Pellets fly to you.' },
+                    { id: 'bullet', name: 'Bullet', desc: 'Shoot ghosts automatically.' }
+                ];
+            }
+
+            selectPerk(perkId) {
+                this.perks.push(perkId);
+                console.log("Selected perk:", perkId);
+                this.state = 'PLAYING';
+            }
+
 
             pelletEaten(pts) {
                 this.addScore(pts);
@@ -732,6 +873,11 @@
             }
 
             update(dt) {
+                if (this.state === 'LEVEL_UP') {
+                    this.updateLevelUp(dt);
+                    return; // Pause game world
+                }
+
                 if (this.state !== 'PLAYING') return;
 
                 // Ghost Release Logic
@@ -789,6 +935,90 @@
                         }
                     }
                 });
+                if (this.fireTiles.length > 0) {
+                    for (let i = this.fireTiles.length - 1; i >= 0; i--) {
+                        let f = this.fireTiles[i];
+                        f.life -= dt;
+                        if (f.life <= 0) {
+                            this.fireTiles.splice(i, 1);
+                        } else {
+                            // Ghost Damage
+                            this.ghosts.forEach(g => {
+                                let gr = Math.round(g.y / TILE_SIZE);
+                                let gc = Math.round(g.x / TILE_SIZE);
+                                if (gr === f.r && gc === f.c && g.mode !== 'EATEN' && g.mode !== 'FRIGHTENED') {
+                                    // Burn ghost
+                                    this.audio.playEatGhost();
+                                    g.mode = 'EATEN';
+                                    this.addScore(200);
+                                }
+                            });
+                        }
+                    }
+                }
+
+                // Update Projectiles (Bullet)
+                // Shoot Trigger
+                if (this.perks.includes('bullet') && this.state === 'PLAYING') {
+                    this.bulletTimer += dt;
+                    if (this.bulletTimer > 2000) { // 2 Seconds
+                        this.bulletTimer = 0;
+                        this.shootBullet();
+                    }
+                }
+
+                // Move Projectiles
+                if (this.projectiles.length > 0) {
+                    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+                        let p = this.projectiles[i];
+                        p.x += p.dx * 8; // Fast speed
+                        p.y += p.dy * 8;
+
+                        // Wall Collision
+                        let r = Math.floor(p.y / TILE_SIZE);
+                        let c = Math.floor(p.x / TILE_SIZE);
+                        if (this.map.isWall(r, c)) {
+                            this.projectiles.splice(i, 1);
+                            continue;
+                        }
+
+                        // Ghost Collision
+                        let hit = false;
+                        for (let g of this.ghosts) {
+                            if (g.mode === 'EATEN') continue;
+                            let dist = Math.hypot(g.x - p.x, g.y - p.y);
+                            if (dist < TILE_SIZE) {
+                                g.mode = 'EATEN';
+                                this.addScore(200);
+                                this.audio.playEatGhost();
+                                this.projectiles.splice(i, 1);
+                                hit = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            updateLevelUp(dt) {
+                const mouse = this.input.getMouseStatus();
+                if (!mouse.clicked) return;
+
+                const cardWidth = 120;
+                const cardHeight = 160;
+                const gap = 20;
+                const totalWidth = 3 * cardWidth + 2 * gap;
+                const startX = (CANVAS_WIDTH - totalWidth) / 2;
+                const startY = 150;
+
+                this.offeredPerks.forEach((perk, index) => {
+                    const x = startX + index * (cardWidth + gap);
+                    const y = startY;
+
+                    if (mouse.x >= x && mouse.x <= x + cardWidth && mouse.y >= y && mouse.y <= y + cardHeight) {
+                        this.selectPerk(perk.id);
+                    }
+                });
             }
 
             // NOTE: We need to trigger chomp sound.
@@ -797,11 +1027,58 @@
             // I will update Pacman class via a separate tool call if needed or just patch it.
             // Actually, I can rely on a simple interval for "wakka wakka" if moving.
 
+            shootBullet() {
+                // Find nearest ghost
+                let nearest = null;
+                let minDst = Infinity;
+
+                this.ghosts.forEach(g => {
+                    if (g.mode === 'EATEN') return;
+                    let dst = Math.hypot(g.x - this.pacman.x, g.y - this.pacman.y);
+                    if (dst < minDst) {
+                        minDst = dst;
+                        nearest = g;
+                    }
+                });
+
+                if (nearest) {
+                    let dx = nearest.x - this.pacman.x;
+                    let dy = nearest.y - this.pacman.y;
+                    let len = Math.hypot(dx, dy);
+                    if (len > 0) {
+                        dx /= len;
+                        dy /= len;
+                        this.projectiles.push({ x: this.pacman.x + TILE_SIZE / 2, y: this.pacman.y + TILE_SIZE / 2, dx, dy });
+                    }
+                }
+            }
+
             draw() {
                 ctx.fillStyle = COLOR_BG;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                 this.map.draw(ctx);
+
+                // Draw Fire
+                ctx.fillStyle = 'rgba(255, 69, 0, 0.6)'; // OrangeRed transparent
+                this.fireTiles.forEach(f => {
+                    ctx.fillRect(f.c * TILE_SIZE, f.r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    // Flicker center
+                    if (Math.random() > 0.5) {
+                        ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
+                        ctx.fillRect(f.c * TILE_SIZE + 4, f.r * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                        ctx.fillStyle = 'rgba(255, 69, 0, 0.6)'; // Reset
+                    }
+                });
+
+                // Draw Projectiles
+                ctx.fillStyle = '#FFF';
+                this.projectiles.forEach(p => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
                 this.pacman.draw(ctx);
                 this.ghosts.forEach(g => g.draw(ctx));
 
@@ -817,8 +1094,102 @@
                     ctx.textAlign = 'center';
                     ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
                     ctx.fillText("Press Space to Restart", canvas.width / 2, canvas.height / 2 + 30);
+                } else if (this.state === 'LEVEL_UP') {
+                    this.drawLevelUpMenu(ctx);
                 }
+
+                this.drawXpBar(ctx);
             }
+
+            drawXpBar(ctx) {
+                const barHeight = 10;
+                const barWidth = CANVAS_WIDTH;
+                const fillPercent = Math.min(1, this.xp / this.xpMax);
+
+                // Background
+                ctx.fillStyle = '#333';
+                ctx.fillRect(0, CANVAS_HEIGHT - barHeight, barWidth, barHeight);
+
+                // Fill
+                ctx.fillStyle = '#00FF00'; // Green XP
+                ctx.fillRect(0, CANVAS_HEIGHT - barHeight, barWidth * fillPercent, barHeight);
+
+                // Text
+                ctx.fillStyle = 'white';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(`LVL ${this.level}`, 5, CANVAS_HEIGHT - 12);
+            }
+
+            drawLevelUpMenu(ctx) {
+                // Overlay
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+                ctx.fillStyle = 'white';
+                ctx.textAlign = 'center';
+                ctx.font = '30px monospace';
+                ctx.fillText('LEVEL UP!', CANVAS_WIDTH / 2, 80);
+
+                ctx.font = '16px monospace';
+                ctx.fillText('Choose a Perk:', CANVAS_WIDTH / 2, 110);
+
+                // Draw Cards
+                const cardWidth = 120;
+                const cardHeight = 160;
+                const gap = 20;
+                const totalWidth = 3 * cardWidth + 2 * gap;
+                const startX = (CANVAS_WIDTH - totalWidth) / 2;
+                const startY = 150;
+
+                this.offeredPerks.forEach((perk, index) => {
+                    const x = startX + index * (cardWidth + gap);
+                    const y = startY;
+
+                    // Highlight
+                    const mouse = this.input.getMouseStatus();
+                    const mx = this.input.mouseX; // Peek
+                    const my = this.input.mouseY;
+                    const hovered = mx >= x && mx <= x + cardWidth && my >= y && my <= y + cardHeight;
+
+                    // Card Bg
+                    ctx.fillStyle = hovered ? '#444' : '#222';
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 2;
+                    ctx.fillRect(x, y, cardWidth, cardHeight);
+                    ctx.strokeRect(x, y, cardWidth, cardHeight);
+
+                    // Title
+                    ctx.fillStyle = '#FFFF00';
+                    ctx.font = '14px monospace';
+                    ctx.fillText(perk.name, x + cardWidth / 2, y + 30);
+
+                    // Desc
+                    ctx.fillStyle = '#DDD';
+                    ctx.font = '12px monospace';
+                    this.wrapText(ctx, perk.desc, x + cardWidth / 2, y + 60, cardWidth - 10, 16);
+                });
+            }
+
+            wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+                const words = text.split(' ');
+                let line = '';
+                for (let n = 0; n < words.length; n++) {
+                    const testLine = line + words[n] + ' ';
+                    const metrics = ctx.measureText(testLine);
+                    const testWidth = metrics.width;
+                    if (testWidth > maxWidth && n > 0) {
+                        ctx.fillText(line, x, y);
+                        line = words[n] + ' ';
+                        y += lineHeight;
+                    }
+                    else {
+                        line = testLine;
+                    }
+                }
+                ctx.fillText(line, x, y);
+            }
+
 
             loop(timestamp) {
                 const dt = timestamp - this.lastTime;
@@ -831,6 +1202,11 @@
             }
 
             softReset() {
+                // Difficulty Scaling
+                // Base speed 1. Increase by 10% per level. Cap at 2.0 (Pacman speed).
+                const diffMultiplier = 1 + (this.level - 1) * 0.1;
+                const newSpeed = Math.min(2.0, 1 * diffMultiplier);
+
                 // Reset Ghosts positions & modes
                 this.ghosts = [
                     new Ghost(13.5, 11, 'red', 0, this.map),
@@ -838,6 +1214,10 @@
                     new Ghost(11.5, 14, 'cyan', 2, this.map),
                     new Ghost(15.5, 14, 'orange', 3, this.map)
                 ];
+
+                // Apply speed
+                this.ghosts.forEach(g => g.speed = newSpeed);
+
                 this.ghosts[0].mode = 'SCATTER';
                 this.ghosts[0].dir = [LEFT, RIGHT][Math.floor(Math.random() * 2)]; // Force Blinky Horizontal
 
@@ -849,6 +1229,11 @@
                 this.globalMode = 'SCATTER';
                 this.powerMode = false;
                 clearTimeout(this.powerTimer);
+
+                // Keep Projectiles? Probably clear them on level reset to be fair.
+                this.projectiles = [];
+                // Keep Fire? Maybe clear fire tiles too.
+                this.fireTiles = [];
             }
         }
 
