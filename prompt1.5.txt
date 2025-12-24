@@ -1,0 +1,15 @@
+Core Gameplay Changes:
+
+    XP System: Pellets no longer just give score; they give Experience Points (XP).
+
+    Level Up Menu: When the XP bar fills, pause the game and trigger a  UI overlay that offers the player a choice of a "Perks" (Cards).
+
+    Perk Ideas:
+
+        Trail Blazer: Pac-Man leaves a trail of fire that damages ghosts.
+
+        Magnetism: Pellets within a 3-tile radius fly toward Pac-Man.
+
+        Bullet: Pac-Man automatically shoots a projectile at the nearest ghost every 2 seconds.
+
+    Endless Scaling: The game doesn't end when the board is clear. The board respawns with tougher/faster ghosts, but the player keeps their perks.
