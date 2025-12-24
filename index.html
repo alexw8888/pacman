@@ -86,11 +86,11 @@
             TEXT: '#ffffff'
         };
 
-        // Speeds (pixels per frame at 60fps)
-        const PACMAN_SPEED = 2;
-        const GHOST_SPEED = 1.8;
-        const GHOST_VULNERABLE_SPEED = 1;
-        const GHOST_RETURNING_SPEED = 4;
+        // Speeds (pixels per frame at 60fps) - 30% slower
+        const PACMAN_SPEED = 1.4;
+        const GHOST_SPEED = 1.26;
+        const GHOST_VULNERABLE_SPEED = 0.7;
+        const GHOST_RETURNING_SPEED = 2.0;
 
         // Directions
         const DIRECTIONS = {
@@ -258,6 +258,10 @@
             }
 
             eatPellet(x, y) {
+                // Bounds check for tunnel positions
+                if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
+                    return 0;
+                }
                 const tile = this.grid[y][x];
                 if (tile === 2 || tile === 3) {
                     this.grid[y][x] = 0;
@@ -343,7 +347,7 @@
             }
 
             reset() {
-                this.x = 14 * TILE_SIZE;
+                this.x = 14 * TILE_SIZE + TILE_SIZE / 2;
                 this.y = 23 * TILE_SIZE + TILE_SIZE / 2;
                 this.direction = DIRECTIONS.NONE;
                 this.nextDirection = DIRECTIONS.NONE;
@@ -614,6 +618,7 @@
 
                     // Check if returning ghost reached home
                     if (this.isReturning && tileY >= 12 && tileY <= 15 && tileX >= 11 && tileX <= 16) {
+                        console.log(`[GHOST ${this.color}] REACHED HOUSE at tile (${tileX}, ${tileY})! Setting isReturning=false, isInHouse=true`);
                         this.isReturning = false;
                         this.isVulnerable = false;
                         this.isInHouse = true;
@@ -731,6 +736,7 @@
             // BFS pathfinding to find the direction to the ghost house
             findPathToHouse(map, startX, startY) {
                 // Target is the ghost house entrance at (13, 11) or (14, 11)
+                // The actual entrance tiles (type 4) are at row 12, columns 13-14
                 const targetX = 13;
                 const targetY = 11;
 
@@ -743,7 +749,7 @@
                 }
 
                 // Special case 1: Already inside the ghost house (tile type 4)
-                // Just move down toward the center
+                // Just move down toward the center to trigger respawn
                 if (currentTile === 4) {
                     if (this._debugCounter % 60 === 0) {
                         console.log(`[RETURNING ${this.color}] Inside ghost house, going DOWN`);
@@ -751,26 +757,43 @@
                     return DIRECTIONS.DOWN;
                 }
 
-                // Special case 2: At the entrance row (y=11) and within the entrance corridor
-                // The entrance is at columns 9-18 on row 11
+                // Special case 2: At the entrance row (y=11) and within the approach corridor
+                // Need to navigate to columns 13-14 where the actual entrance is
                 if (startY === 11 && startX >= 9 && startX <= 18) {
+                    // First, navigate horizontally to the entrance columns (13-14)
+                    if (startX < 13) {
+                        if (this._debugCounter % 60 === 0) {
+                            console.log(`[RETURNING ${this.color}] At row 11, moving RIGHT to reach entrance`);
+                        }
+                        return DIRECTIONS.RIGHT;
+                    }
+                    if (startX > 14) {
+                        if (this._debugCounter % 60 === 0) {
+                            console.log(`[RETURNING ${this.color}] At row 11, moving LEFT to reach entrance`);
+                        }
+                        return DIRECTIONS.LEFT;
+                    }
+                    // At columns 13 or 14, check if we can go down
                     const belowTile = map.getTile(startX, startY + 1);
                     if (this._debugCounter % 60 === 0) {
-                        console.log(`[RETURNING ${this.color}] At entrance row 11, belowTile at (${startX}, ${startY + 1}) = ${belowTile}`);
+                        console.log(`[RETURNING ${this.color}] At entrance (${startX}, 11), belowTile = ${belowTile}, going DOWN`);
                     }
-                    // If we can enter the house (tile below is type 4 or 0 leading to house)
-                    if (belowTile === 4) {
-                        return DIRECTIONS.DOWN;
-                    }
-                    // If below is blocked, need to move sideways to find the entrance
-                    // The actual entrance (type 4) is at columns 13-14 on row 12
-                    if (startX < 13) return DIRECTIONS.RIGHT;
-                    if (startX > 14) return DIRECTIONS.LEFT;
-                    // At columns 13 or 14, go down
+                    // Go down to enter the house
                     return DIRECTIONS.DOWN;
                 }
 
-                // BFS to find shortest path
+                // Special case 3: Just above the entrance row (y=10), head down to row 11
+                if (startY === 10 && startX >= 9 && startX <= 18) {
+                    const belowTile = map.getTile(startX, startY + 1);
+                    if (belowTile !== 1) {
+                        if (this._debugCounter % 60 === 0) {
+                            console.log(`[RETURNING ${this.color}] At row 10, moving DOWN toward entrance corridor`);
+                        }
+                        return DIRECTIONS.DOWN;
+                    }
+                }
+
+                // BFS to find shortest path to the entrance area
                 const queue = [[startX, startY, null]]; // [x, y, firstDirection]
                 const visited = new Set();
                 visited.add(`${startX},${startY}`);
@@ -792,8 +815,9 @@
                     iterations++;
                     const [x, y, firstDir] = queue.shift();
 
-                    // Check if we reached the target area (entrance corridor at row 11)
-                    if (y === targetY && x >= 12 && x <= 15) {
+                    // Check if we reached the target area (entrance at row 11, columns 13-14)
+                    // We target exactly the entrance columns to ensure proper entry
+                    if (y === targetY && x >= 13 && x <= 14) {
                         if (this._debugCounter % 60 === 0) {
                             const dirName = firstDir === DIRECTIONS.UP ? 'UP' :
                                 firstDir === DIRECTIONS.DOWN ? 'DOWN' :
@@ -1169,7 +1193,9 @@
                     if (dx < TILE_SIZE - 4 && dy < TILE_SIZE - 4) {
                         if (ghost.isVulnerable) {
                             // Eat ghost
+                            console.log(`[GHOST ${ghost.color}] EATEN! pos: (${ghost.x.toFixed(1)}, ${ghost.y.toFixed(1)}), tile: (${Math.floor(ghost.x / TILE_SIZE)}, ${Math.floor(ghost.y / TILE_SIZE)}), calling startReturning()`);
                             ghost.startReturning();
+                            console.log(`[GHOST ${ghost.color}] After startReturning: isReturning=${ghost.isReturning}, isVulnerable=${ghost.isVulnerable}`);
                             this.score += POINTS.GHOST * this.ghostMultiplier;
                             this.ghostMultiplier *= 2;
                             this.audio.playSound('eatGhost');
