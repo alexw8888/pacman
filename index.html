@@ -75,6 +75,90 @@
                 opacity: 0;
             }
         }
+
+        /* XP Bar Styles */
+        #xp-container {
+            width: 200px;
+            height: 12px;
+            background: #333;
+            border: 2px solid #fff;
+            border-radius: 6px;
+            position: relative;
+            overflow: hidden;
+            margin: 0 10px;
+        }
+
+        #xp-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #00ff00, #00cc00);
+            transition: width 0.3s ease;
+        }
+
+        #level-display {
+            font-weight: bold;
+            color: #00ff00;
+        }
+
+        /* Perk Overlay Styles */
+        #perk-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        #perk-container {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .perk-card {
+            width: 140px;
+            height: 200px;
+            background: #111;
+            border: 2px solid #ffff00;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .perk-card:hover {
+            transform: scale(1.05);
+            background: #222;
+            box-shadow: 0 0 15px rgba(255, 255, 0, 0.5);
+        }
+
+        .perk-title {
+            font-size: 18px;
+            color: #ffff00;
+            font-weight: bold;
+        }
+
+        .perk-desc {
+            font-size: 14px;
+            color: #fff;
+            margin-top: 10px;
+        }
+
+        .perk-rarity {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+        }
     </style>
 </head>
 
@@ -83,13 +167,23 @@
     <div id="game-container">
         <div id="ui">
             <div>SCORE: <span id="score">0</span></div>
+            <div style="display: flex; align-items: center;">
+                LVL: <span id="level-display">1</span>
+                <div id="xp-container">
+                    <div id="xp-bar"></div>
+                </div>
+            </div>
             <div>LIVES: <span id="lives">3</span></div>
-            <div>HIGH: <span id="high-score">0</span></div>
         </div>
         <canvas id="gameCanvas"></canvas>
         <div id="overlay">
-            <h1 id="overlay-title">PAC-MAN</h1>
+            <h1 id="overlay-title">PAC-MAN RPG</h1>
             <p id="overlay-msg" class="blink">PRESS SPACE TO START</p>
+        </div>
+        <div id="perk-overlay">
+            <h1>LEVEL UP!</h1>
+            <p>CHOOSE A PERK</p>
+            <div id="perk-container"></div>
         </div>
     </div>
 
@@ -264,6 +358,9 @@
                 super(13.5, 23, 2);
                 this.mouthOpen = 0;
                 this.mouthSpeed = 0.1;
+                this.trail = [];
+                this.bulletTimer = 0;
+                this.magnetizedPellets = [];
             }
 
             update() {
@@ -288,7 +385,101 @@
                 if (this.x < 0) this.x = CANVAS_WIDTH;
                 if (this.x > CANVAS_WIDTH) this.x = 0;
 
+                // Perk: Trail Blazer
+                if (game.perks.includes('Trail Blazer')) {
+                    if (game.frameCount % 5 === 0) {
+                        this.trail.push({ x: this.x, y: this.y, life: 180 }); // 3 seconds at 60fps
+                    }
+                }
+                this.trail = this.trail.filter(p => {
+                    p.life--;
+                    return p.life > 0;
+                });
+
+                // Perk: Bullet
+                if (game.perks.includes('Bullet')) {
+                    this.bulletTimer++;
+                    if (this.bulletTimer >= 120) { // 2 seconds
+                        this.shoot();
+                        this.bulletTimer = 0;
+                    }
+                }
+
+                // Perk: Magnetism
+                if (game.perks.includes('Magnetism')) {
+                    this.applyMagnetism();
+                }
+
                 this.eat();
+            }
+
+            applyMagnetism() {
+                const range = TILE_SIZE * 3;
+                const pos = this.getTilePos();
+                // Check nearby tiles to "magnetize" pellets
+                for (let r = pos.row - 3; r <= pos.row + 3; r++) {
+                    for (let c = pos.col - 3; c <= pos.col + 3; c++) {
+                        if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+                            if (MAP_LAYOUT[r][c] === 2 || MAP_LAYOUT[r][c] === 3) {
+                                const pelletX = c * TILE_SIZE + TILE_SIZE / 2;
+                                const pelletY = r * TILE_SIZE + TILE_SIZE / 2;
+                                const d = Math.hypot(this.x - pelletX, this.y - pelletY);
+                                if (d < range) {
+                                    const type = MAP_LAYOUT[r][c];
+                                    MAP_LAYOUT[r][c] = 0;
+                                    this.magnetizedPellets.push({
+                                        x: pelletX,
+                                        y: pelletY,
+                                        type: type
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Move magnetized pellets towards Pac-Man
+                this.magnetizedPellets = this.magnetizedPellets.filter(p => {
+                    const d = Math.hypot(this.x - p.x, this.y - p.y);
+                    if (d < 5) { // Eat it
+                        const value = p.type === 3 ? 50 : 10;
+                        game.score += value;
+                        game.addXp(value);
+                        if (p.type === 3) game.frightenGhosts();
+                        playSound(440, 'sine', 0.05);
+                        return false;
+                    }
+                    // Lerp towards Pac-Man
+                    p.x += (this.x - p.x) * 0.15;
+                    p.y += (this.y - p.y) * 0.15;
+                    return true;
+                });
+            }
+
+            shoot() {
+                let nearest = null;
+                let minDist = Infinity;
+                game.ghosts.forEach(g => {
+                    if (g.mode !== 'EATEN') {
+                        const d = Math.hypot(this.x - g.x, this.y - g.y);
+                        if (d < minDist) {
+                            minDist = d;
+                            nearest = g;
+                        }
+                    }
+                });
+
+                if (nearest) {
+                    const angle = Math.atan2(nearest.y - this.y, nearest.x - this.x);
+                    game.projectiles.push({
+                        x: this.x,
+                        y: this.y,
+                        vx: Math.cos(angle) * 5,
+                        vy: Math.sin(angle) * 5,
+                        radius: 4
+                    });
+                    playSound(1200, 'square', 0.05);
+                }
             }
 
             eat() {
@@ -297,16 +488,34 @@
                 if (tile === 2) { // Pellet
                     MAP_LAYOUT[pos.row][pos.col] = 0;
                     game.score += 10;
+                    game.addXp(10);
                     playSound(440, 'sine', 0.05);
                 } else if (tile === 3) { // Power Pellet
                     MAP_LAYOUT[pos.row][pos.col] = 0;
                     game.score += 50;
+                    game.addXp(50);
                     game.frightenGhosts();
                     playSound(880, 'square', 0.1);
                 }
             }
 
             draw(ctx) {
+                // Draw magnetized pellets
+                this.magnetizedPellets.forEach(p => {
+                    ctx.fillStyle = COLORS.PELLET;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.type === 3 ? 5 : 2, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                // Draw Trail
+                ctx.fillStyle = 'rgba(255, 69, 0, 0.5)';
+                this.trail.forEach(p => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, this.radius * 0.8, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
                 ctx.fillStyle = COLORS.PACMAN;
                 ctx.beginPath();
                 let angle = 0;
@@ -487,6 +696,15 @@
         }
 
         /**
+         * PERK DEFINITIONS
+         */
+        const ALL_PERKS = [
+            { id: 'Trail Blazer', title: 'Trail Blazer', desc: 'Leave a trail of fire that damages ghosts.' },
+            { id: 'Magnetism', title: 'Magnetism', desc: 'Pellets within 3 tiles fly toward you.' },
+            { id: 'Bullet', title: 'Bullet', desc: 'Shoot a projectile at ghosts every 2s.' }
+        ];
+
+        /**
          * GAME ENGINE
          */
         class Game {
@@ -499,8 +717,15 @@
                 this.score = 0;
                 this.highScore = 0;
                 this.lives = 3;
-                this.state = 'START'; // START, PLAYING, GAMEOVER
+                this.state = 'START'; // START, PLAYING, LEVEL_UP, GAMEOVER
                 this.frightenedTimer = 0;
+                this.xp = 0;
+                this.level = 1;
+                this.maxXp = 100;
+                this.perks = [];
+                this.projectiles = [];
+                this.difficultyCycle = 1;
+                this.frameCount = 0;
 
                 this.init();
                 this.bindEvents();
@@ -568,6 +793,9 @@
                 this.pacman.y = 23 * TILE_SIZE + TILE_SIZE / 2;
                 this.pacman.dir = DIRECTIONS.LEFT;
                 this.pacman.nextDir = DIRECTIONS.LEFT;
+                this.pacman.trail = [];
+                this.pacman.magnetizedPellets = [];
+                this.projectiles = [];
 
                 const ghostStarts = [
                     { x: 13.5, y: 11 },
@@ -580,7 +808,62 @@
                     g.y = ghostStarts[i].y * TILE_SIZE + TILE_SIZE / 2;
                     g.mode = 'CHASE';
                     g.dir = i === 0 ? DIRECTIONS.LEFT : DIRECTIONS.UP;
+                    g.baseSpeed = 1.8 * (1 + (this.difficultyCycle - 1) * 0.1);
                 });
+            }
+
+            addXp(amount) {
+                this.xp += amount;
+                if (this.xp >= this.maxXp) {
+                    this.levelUp();
+                }
+                this.updateXpBar();
+            }
+
+            updateXpBar() {
+                const percent = (this.xp / this.maxXp) * 100;
+                document.getElementById('xp-bar').style.width = `${percent}%`;
+                document.getElementById('level-display').innerText = this.level;
+            }
+
+            levelUp() {
+                this.xp = 0;
+                this.level++;
+                this.maxXp = Math.floor(this.maxXp * 1.5);
+                this.state = 'LEVEL_UP';
+                this.showPerkMenu();
+                playSound(660, 'square', 0.2);
+                playSound(880, 'square', 0.2);
+            }
+
+            showPerkMenu() {
+                const overlay = document.getElementById('perk-overlay');
+                const container = document.getElementById('perk-container');
+                container.innerHTML = '';
+                overlay.style.display = 'flex';
+
+                // Randomly pick 3 perks
+                const shuffled = ALL_PERKS.sort(() => 0.5 - Math.random());
+                const selection = shuffled.slice(0, 3);
+
+                selection.forEach(perk => {
+                    const card = document.createElement('div');
+                    card.className = 'perk-card';
+                    card.innerHTML = `
+                        <div class="perk-title">${perk.title}</div>
+                        <div class="perk-desc">${perk.desc}</div>
+                        <div class="perk-rarity">Common</div>
+                    `;
+                    card.onclick = () => this.selectPerk(perk.id);
+                    container.appendChild(card);
+                });
+            }
+
+            selectPerk(perkId) {
+                this.perks.push(perkId);
+                document.getElementById('perk-overlay').style.display = 'none';
+                this.state = 'PLAYING';
+                this.loop();
             }
 
             gameOver() {
@@ -615,12 +898,13 @@
                 this.ghosts.forEach(ghost => {
                     ghost.update(this.pacman);
 
-                    // Collision Detection
+                    // Collision Detection: Pacman vs Ghost
                     const dist = Math.hypot(this.pacman.x - ghost.x, this.pacman.y - ghost.y);
                     if (dist < TILE_SIZE) {
                         if (ghost.mode === 'FRIGHTENED') {
                             ghost.mode = 'EATEN';
                             this.score += 200;
+                            this.addXp(50);
                             playSound(1320, 'sine', 0.1);
                         } else if (ghost.mode === 'CHASE' || ghost.mode === 'SCATTER') {
                             this.lives--;
@@ -630,18 +914,48 @@
                             } else {
                                 this.gameOver();
                             }
-                            return; // Stop processing this frame
+                            return;
+                        }
+                    }
+
+                    // Collision Detection: Ghost vs Trail
+                    if (this.pacman.trail.some(p => Math.hypot(p.x - ghost.x, p.y - ghost.y) < TILE_SIZE / 2)) {
+                        if (ghost.mode !== 'EATEN') {
+                            ghost.mode = 'EATEN';
+                            this.score += 100;
+                            this.addXp(20);
+                            playSound(1000, 'sine', 0.05);
                         }
                     }
                 });
 
+                // Projectile Updates
+                this.projectiles = this.projectiles.filter(p => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    let hit = false;
+                    this.ghosts.forEach(g => {
+                        if (g.mode !== 'EATEN' && Math.hypot(p.x - g.x, p.y - g.y) < TILE_SIZE) {
+                            g.mode = 'EATEN';
+                            this.score += 100;
+                            this.addXp(20);
+                            hit = true;
+                            playSound(1000, 'sine', 0.05);
+                        }
+                    });
+                    return !hit && p.x > 0 && p.x < CANVAS_WIDTH && p.y > 0 && p.y < CANVAS_HEIGHT;
+                });
+
                 // Check for Level Clear
                 if (this.countPellets() === 0) {
-                    this.init(); // Reset board and entities
+                    this.difficultyCycle++;
+                    this.resetRound(); // Reset entities and board
+                    MAP_LAYOUT = JSON.parse(JSON.stringify(MAP_TEMPLATE));
                     playSound(660, 'square', 0.2);
                     playSound(880, 'square', 0.2);
                 }
 
+                this.frameCount++;
                 document.getElementById('score').innerText = this.score;
             }
 
@@ -650,8 +964,18 @@
                 this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
                 this.drawMap();
+                this.drawProjectiles();
                 this.pacman.draw(this.ctx);
                 this.ghosts.forEach(g => g.draw(this.ctx));
+            }
+
+            drawProjectiles() {
+                this.ctx.fillStyle = '#fff';
+                this.projectiles.forEach(p => {
+                    this.ctx.beginPath();
+                    this.ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
             }
 
             drawMap() {
