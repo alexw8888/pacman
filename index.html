@@ -48,6 +48,172 @@
             margin-top: 20px;
             text-align: center;
         }
+
+        #xpContainer {
+            width: 448px;
+            margin-top: 5px;
+        }
+
+        #xpBar {
+            width: 100%;
+            height: 12px;
+            background: linear-gradient(to bottom, #1a1a2e, #0f0f1a);
+            border: 2px solid #4a4a8a;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #xpFill {
+            height: 100%;
+            background: linear-gradient(to right, #6a0dad, #9b4dca, #c77dff);
+            width: 0%;
+            transition: width 0.3s ease-out;
+            box-shadow: 0 0 10px #9b4dca;
+        }
+
+        #xpText {
+            color: #c77dff;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 2px;
+        }
+
+        /* Perk Selection Overlay */
+        #perkOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 1000;
+        }
+
+        #perkTitle {
+            color: #ffd700;
+            font-size: 32px;
+            text-shadow: 0 0 20px #ffd700;
+            margin-bottom: 30px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        #perkCards {
+            display: flex;
+            gap: 25px;
+        }
+
+        .perk-card {
+            width: 180px;
+            height: 250px;
+            background: linear-gradient(145deg, rgba(30, 30, 60, 0.9), rgba(10, 10, 30, 0.95));
+            border: 2px solid rgba(150, 100, 255, 0.5);
+            border-radius: 15px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .perk-card:hover {
+            transform: translateY(-10px) scale(1.05);
+            border-color: #ffd700;
+            box-shadow: 0 20px 40px rgba(255, 215, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        }
+
+        .perk-icon {
+            font-size: 50px;
+            margin-bottom: 10px;
+        }
+
+        .perk-name {
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .perk-desc {
+            color: #aaa;
+            font-size: 12px;
+            text-align: center;
+            line-height: 1.4;
+        }
+
+        .perk-card.trail-blazer {
+            border-top: 4px solid #ff6b35;
+        }
+
+        .perk-card.magnetism {
+            border-top: 4px solid #00d4ff;
+        }
+
+        .perk-card.bullet {
+            border-top: 4px solid #ffdd00;
+        }
+
+        /* Wave Notification */
+        #waveNotification {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ffd700;
+            font-size: 48px;
+            text-shadow: 0 0 30px #ffd700;
+            display: none;
+            animation: waveIn 2s ease-out forwards;
+            z-index: 100;
+        }
+
+        @keyframes waveIn {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.5);
+            }
+
+            50% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.2);
+            }
+
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+
+        /* Active Perks Display */
+        #activePerks {
+            color: #aaa;
+            font-size: 11px;
+            margin-top: 5px;
+            width: 448px;
+        }
     </style>
 </head>
 
@@ -59,7 +225,24 @@
             <span>LIVES: <span id="lives">3</span></span>
         </div>
         <canvas id="gameCanvas" width="448" height="496"></canvas>
+        <div id="xpContainer">
+            <div id="xpBar">
+                <div id="xpFill"></div>
+            </div>
+            <div id="xpText">
+                <span>Level <span id="level">1</span></span>
+                <span>XP: <span id="currentXp">0</span> / <span id="xpNeeded">100</span></span>
+            </div>
+        </div>
+        <div id="activePerks">Perks: None</div>
         <div id="message">PRESS SPACE TO START</div>
+        <div id="waveNotification"></div>
+    </div>
+
+    <!-- Perk Selection Overlay -->
+    <div id="perkOverlay">
+        <div id="perkTitle">⭐ LEVEL UP! ⭐</div>
+        <div id="perkCards"></div>
     </div>
 
     <script>
@@ -111,6 +294,42 @@
         // Timers
         const POWER_PELLET_DURATION = 8000; // ms
         const GHOST_FLASH_TIME = 2000; // ms before power ends
+
+        // XP System
+        const XP_PER_PELLET = 5;
+        const XP_PER_POWER_PELLET = 25;
+        const XP_PER_GHOST = 50;
+        const BASE_XP_TO_LEVEL = 100;
+        const XP_LEVEL_MULTIPLIER = 1.5; // Each level needs 50% more XP
+
+        // Perk Definitions
+        const PERKS = {
+            TRAIL_BLAZER: {
+                id: 'TRAIL_BLAZER',
+                name: 'Trail Blazer',
+                desc: 'Leave a trail of fire that damages ghosts',
+                icon: '🔥'
+            },
+            MAGNETISM: {
+                id: 'MAGNETISM',
+                name: 'Magnetism',
+                desc: 'Pellets within 3 tiles fly toward you',
+                icon: '🧲'
+            },
+            BULLET: {
+                id: 'BULLET',
+                name: 'Bullet',
+                desc: 'Auto-shoot at the nearest ghost every 2 seconds',
+                icon: '🎯'
+            }
+        };
+
+        // Perk Settings
+        const FIRE_TRAIL_DURATION = 2000; // ms
+        const MAGNETISM_RADIUS = 3; // tiles
+        const BULLET_INTERVAL = 2000; // ms
+        const BULLET_SPEED = 4; // pixels per frame
+        const PROJECTILE_DAMAGE = true; // Ghosts hit by projectiles start returning
 
         // ==================== MAP DATA ====================
         // 0 = empty, 1 = wall, 2 = pellet, 3 = power pellet, 4 = ghost house
@@ -1059,6 +1278,16 @@
                 this.livesElement = document.getElementById('lives');
                 this.messageElement = document.getElementById('message');
 
+                // XP UI Elements
+                this.xpFillElement = document.getElementById('xpFill');
+                this.levelElement = document.getElementById('level');
+                this.currentXpElement = document.getElementById('currentXp');
+                this.xpNeededElement = document.getElementById('xpNeeded');
+                this.activePerksElement = document.getElementById('activePerks');
+                this.perkOverlay = document.getElementById('perkOverlay');
+                this.perkCardsElement = document.getElementById('perkCards');
+                this.waveNotification = document.getElementById('waveNotification');
+
                 this.audio = new AudioManager();
                 this.map = new GameMap();
                 this.pacman = new Pacman();
@@ -1067,10 +1296,32 @@
                 this.score = 0;
                 this.highScore = parseInt(localStorage.getItem('pacmanHighScore')) || 0;
                 this.lives = 3;
-                this.gameState = 'waiting'; // waiting, playing, paused, gameover, won
+                this.gameState = 'waiting'; // waiting, playing, paused, gameover, won, levelup
                 this.powerPelletTimer = 0;
                 this.ghostMultiplier = 1;
                 this.lastChompTime = 0;
+
+                // XP & Leveling System
+                this.xp = 0;
+                this.level = 1;
+                this.xpToNextLevel = BASE_XP_TO_LEVEL;
+
+                // Perk System
+                this.activePerks = [];
+
+                // Fire Trail (Trail Blazer perk)
+                this.fireTrail = []; // { x, y, timestamp }
+
+                // Magnetized Pellets (Magnetism perk)
+                this.magnetizedPellets = []; // { x, y, targetX, targetY }
+
+                // Projectiles (Bullet perk)
+                this.projectiles = []; // { x, y, targetGhost, dx, dy }
+                this.bulletTimer = 0;
+
+                // Endless Scaling
+                this.waveNumber = 1;
+                this.baseGhostSpeed = GHOST_SPEED;
 
                 this.highScoreElement.textContent = this.highScore;
 
@@ -1133,6 +1384,19 @@
                 this.gameState = 'playing';
                 this.powerPelletTimer = 0;
                 this.ghostMultiplier = 1;
+
+                // Reset XP & Perks for new game
+                this.xp = 0;
+                this.level = 1;
+                this.xpToNextLevel = BASE_XP_TO_LEVEL;
+                this.activePerks = [];
+                this.fireTrail = [];
+                this.magnetizedPellets = [];
+                this.projectiles = [];
+                this.bulletTimer = 0;
+                this.waveNumber = 1;
+                this.baseGhostSpeed = GHOST_SPEED;
+
                 this.updateUI();
                 this.messageElement.textContent = '';
             }
@@ -1150,18 +1414,38 @@
                 // Update Pac-Man
                 this.pacman.update(this.map);
 
+                // ==== MAGNETISM PERK: Attract nearby pellets ====
+                if (this.hasPerk('MAGNETISM')) {
+                    this.updateMagnetism();
+                }
+
+                // ==== TRAIL BLAZER PERK: Leave fire trail ====
+                if (this.hasPerk('TRAIL_BLAZER')) {
+                    this.updateFireTrail();
+                }
+
+                // ==== BULLET PERK: Auto-shoot at ghosts ====
+                if (this.hasPerk('BULLET')) {
+                    this.updateBullets();
+                }
+
+                // Update and draw magnetized pellets
+                this.updateMagnetizedPellets();
+
                 // Check pellet collision
                 const pacTile = this.pacman.getTilePosition();
                 const pellet = this.map.eatPellet(pacTile.x, pacTile.y);
 
                 if (pellet === 2) {
                     this.score += POINTS.PELLET;
+                    this.gainXP(XP_PER_PELLET);
                     if (Date.now() - this.lastChompTime > 100) {
                         this.audio.playSound('chomp');
                         this.lastChompTime = Date.now();
                     }
                 } else if (pellet === 3) {
                     this.score += POINTS.POWER_PELLET;
+                    this.gainXP(XP_PER_POWER_PELLET);
                     this.audio.playSound('powerPellet');
                     this.powerPelletTimer = POWER_PELLET_DURATION;
                     this.ghostMultiplier = 1;
@@ -1180,10 +1464,19 @@
                     }
                 }
 
-                // Update ghosts
-                this.ghosts.forEach(ghost => ghost.update(this.map, this.pacman, this.ghosts));
+                // Update ghosts with wave-scaled speed
+                const waveSpeedMultiplier = 1 + (this.waveNumber - 1) * 0.1;
+                this.ghosts.forEach(ghost => {
+                    ghost.speed = ghost.isReturning ? GHOST_RETURNING_SPEED :
+                        ghost.isVulnerable ? GHOST_VULNERABLE_SPEED :
+                            GHOST_SPEED * waveSpeedMultiplier;
+                    ghost.update(this.map, this.pacman, this.ghosts);
+                });
 
-                // Check ghost collision
+                // Update projectiles and check collisions
+                this.updateProjectiles();
+
+                // Check ghost collision with Pac-Man
                 this.ghosts.forEach(ghost => {
                     if (ghost.isReturning || ghost.isInHouse) return;
 
@@ -1193,16 +1486,16 @@
                     if (dx < TILE_SIZE - 4 && dy < TILE_SIZE - 4) {
                         if (ghost.isVulnerable) {
                             // Eat ghost
-                            console.log(`[GHOST ${ghost.color}] EATEN! pos: (${ghost.x.toFixed(1)}, ${ghost.y.toFixed(1)}), tile: (${Math.floor(ghost.x / TILE_SIZE)}, ${Math.floor(ghost.y / TILE_SIZE)}), calling startReturning()`);
                             ghost.startReturning();
-                            console.log(`[GHOST ${ghost.color}] After startReturning: isReturning=${ghost.isReturning}, isVulnerable=${ghost.isVulnerable}`);
                             this.score += POINTS.GHOST * this.ghostMultiplier;
+                            this.gainXP(XP_PER_GHOST);
                             this.ghostMultiplier *= 2;
                             this.audio.playSound('eatGhost');
                         } else {
                             // Pac-Man dies
                             this.audio.playSound('death');
                             this.lives--;
+                            this.fireTrail = []; // Clear fire trail on death
                             if (this.lives <= 0) {
                                 this.gameOver();
                             } else {
@@ -1212,13 +1505,287 @@
                     }
                 });
 
-                // Check win condition
+                // Check fire trail collision with ghosts
+                if (this.hasPerk('TRAIL_BLAZER')) {
+                    this.checkFireTrailCollision();
+                }
+
+                // Check win condition -> Endless scaling
                 if (this.map.allPelletsEaten()) {
-                    this.gameState = 'won';
-                    this.messageElement.textContent = 'YOU WIN!\nPRESS SPACE TO PLAY AGAIN';
+                    this.startNextWave();
                 }
 
                 this.updateUI();
+            }
+
+            // ==== XP SYSTEM ====
+            gainXP(amount) {
+                this.xp += amount;
+                while (this.xp >= this.xpToNextLevel) {
+                    this.xp -= this.xpToNextLevel;
+                    this.level++;
+                    this.xpToNextLevel = Math.floor(BASE_XP_TO_LEVEL * Math.pow(XP_LEVEL_MULTIPLIER, this.level - 1));
+                    this.showPerkMenu();
+                }
+            }
+
+            hasPerk(perkId) {
+                return this.activePerks.includes(perkId);
+            }
+
+            // ==== PERK MENU ====
+            showPerkMenu() {
+                this.gameState = 'levelup';
+                this.perkOverlay.style.display = 'flex';
+
+                // Get available perks (all 3 for now, could randomize later)
+                const perkList = Object.values(PERKS);
+
+                // Clear and populate perk cards
+                this.perkCardsElement.innerHTML = '';
+                perkList.forEach(perk => {
+                    const card = document.createElement('div');
+                    const alreadyHas = this.hasPerk(perk.id);
+                    card.className = `perk-card ${perk.id.toLowerCase().replace('_', '-')}${alreadyHas ? ' owned' : ''}`;
+                    card.innerHTML = `
+                        <div class="perk-icon">${perk.icon}</div>
+                        <div class="perk-name">${perk.name}${alreadyHas ? ' ✓' : ''}</div>
+                        <div class="perk-desc">${alreadyHas ? 'Already owned! (Bonus XP)' : perk.desc}</div>
+                    `;
+                    card.onclick = () => this.selectPerk(perk.id);
+                    this.perkCardsElement.appendChild(card);
+                });
+            }
+
+            selectPerk(perkId) {
+                if (!this.hasPerk(perkId)) {
+                    this.activePerks.push(perkId);
+                } else {
+                    // If already has perk, give bonus XP instead
+                    this.xp += 25;
+                }
+
+                this.perkOverlay.style.display = 'none';
+                this.gameState = 'playing';
+                this.updatePerksDisplay();
+            }
+
+            updatePerksDisplay() {
+                if (this.activePerks.length === 0) {
+                    this.activePerksElement.textContent = 'Perks: None';
+                } else {
+                    const perkNames = this.activePerks.map(id => PERKS[id].icon + ' ' + PERKS[id].name);
+                    this.activePerksElement.textContent = 'Perks: ' + perkNames.join(' | ');
+                }
+            }
+
+            // ==== TRAIL BLAZER PERK ====
+            updateFireTrail() {
+                const pacTile = this.pacman.getTilePosition();
+                const now = Date.now();
+
+                // Add current position to trail (if not already there)
+                const existing = this.fireTrail.find(t => t.x === pacTile.x && t.y === pacTile.y);
+                if (!existing) {
+                    this.fireTrail.push({ x: pacTile.x, y: pacTile.y, timestamp: now });
+                }
+
+                // Remove old trail segments
+                this.fireTrail = this.fireTrail.filter(t => now - t.timestamp < FIRE_TRAIL_DURATION);
+            }
+
+            checkFireTrailCollision() {
+                const now = Date.now();
+                this.ghosts.forEach(ghost => {
+                    if (ghost.isReturning || ghost.isInHouse) return;
+
+                    const ghostTileX = Math.floor(ghost.x / TILE_SIZE);
+                    const ghostTileY = Math.floor(ghost.y / TILE_SIZE);
+
+                    const hitTrail = this.fireTrail.find(t => t.x === ghostTileX && t.y === ghostTileY);
+                    if (hitTrail) {
+                        ghost.startReturning();
+                        this.score += 100;
+                        this.gainXP(25);
+                        this.audio.playSound('eatGhost');
+                    }
+                });
+            }
+
+            // ==== MAGNETISM PERK ====
+            updateMagnetism() {
+                const pacTile = this.pacman.getTilePosition();
+
+                // Find pellets within radius and start moving them
+                for (let dy = -MAGNETISM_RADIUS; dy <= MAGNETISM_RADIUS; dy++) {
+                    for (let dx = -MAGNETISM_RADIUS; dx <= MAGNETISM_RADIUS; dx++) {
+                        const tx = pacTile.x + dx;
+                        const ty = pacTile.y + dy;
+
+                        // Check if within circular radius
+                        if (dx * dx + dy * dy > MAGNETISM_RADIUS * MAGNETISM_RADIUS) continue;
+
+                        const tile = this.map.getTile(tx, ty);
+                        if (tile === 2 || tile === 3) {
+                            // Check if not already magnetized
+                            const alreadyMagnetized = this.magnetizedPellets.find(p => p.tileX === tx && p.tileY === ty);
+                            if (!alreadyMagnetized) {
+                                this.magnetizedPellets.push({
+                                    tileX: tx,
+                                    tileY: ty,
+                                    x: tx * TILE_SIZE + TILE_SIZE / 2,
+                                    y: ty * TILE_SIZE + TILE_SIZE / 2,
+                                    type: tile
+                                });
+                                // Remove from map immediately
+                                this.map.grid[ty][tx] = 0;
+                            }
+                        }
+                    }
+                }
+            }
+
+            updateMagnetizedPellets() {
+                const pelletsToRemove = [];
+
+                this.magnetizedPellets.forEach((pellet, index) => {
+                    // Move toward Pac-Man
+                    const dx = this.pacman.x - pellet.x;
+                    const dy = this.pacman.y - pellet.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < 8) {
+                        // Consumed!
+                        pelletsToRemove.push(index);
+                        this.map.pelletsEaten++;
+
+                        if (pellet.type === 2) {
+                            this.score += POINTS.PELLET;
+                            this.gainXP(XP_PER_PELLET);
+                        } else if (pellet.type === 3) {
+                            this.score += POINTS.POWER_PELLET;
+                            this.gainXP(XP_PER_POWER_PELLET);
+                            this.powerPelletTimer = POWER_PELLET_DURATION;
+                            this.ghostMultiplier = 1;
+                            this.ghosts.forEach(ghost => ghost.makeVulnerable());
+                        }
+
+                        if (Date.now() - this.lastChompTime > 100) {
+                            this.audio.playSound('chomp');
+                            this.lastChompTime = Date.now();
+                        }
+                    } else {
+                        // Move toward Pac-Man
+                        const speed = 3;
+                        pellet.x += (dx / dist) * speed;
+                        pellet.y += (dy / dist) * speed;
+                    }
+                });
+
+                // Remove consumed pellets (in reverse order to preserve indices)
+                for (let i = pelletsToRemove.length - 1; i >= 0; i--) {
+                    this.magnetizedPellets.splice(pelletsToRemove[i], 1);
+                }
+            }
+
+            // ==== BULLET PERK ====
+            updateBullets() {
+                this.bulletTimer += 16.67;
+
+                if (this.bulletTimer >= BULLET_INTERVAL) {
+                    this.bulletTimer = 0;
+
+                    // Find nearest ghost
+                    let nearestGhost = null;
+                    let nearestDist = Infinity;
+
+                    this.ghosts.forEach(ghost => {
+                        if (ghost.isReturning || ghost.isInHouse) return;
+
+                        const dx = ghost.x - this.pacman.x;
+                        const dy = ghost.y - this.pacman.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist < nearestDist) {
+                            nearestDist = dist;
+                            nearestGhost = ghost;
+                        }
+                    });
+
+                    if (nearestGhost) {
+                        // Spawn projectile
+                        const dx = nearestGhost.x - this.pacman.x;
+                        const dy = nearestGhost.y - this.pacman.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        this.projectiles.push({
+                            x: this.pacman.x,
+                            y: this.pacman.y,
+                            dx: (dx / dist) * BULLET_SPEED,
+                            dy: (dy / dist) * BULLET_SPEED,
+                            targetGhost: nearestGhost
+                        });
+                    }
+                }
+            }
+
+            updateProjectiles() {
+                const projectilesToRemove = [];
+
+                this.projectiles.forEach((proj, index) => {
+                    // Move projectile
+                    proj.x += proj.dx;
+                    proj.y += proj.dy;
+
+                    // Check collision with ghosts
+                    this.ghosts.forEach(ghost => {
+                        if (ghost.isReturning || ghost.isInHouse) return;
+
+                        const dx = ghost.x - proj.x;
+                        const dy = ghost.y - proj.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist < TILE_SIZE / 2) {
+                            ghost.startReturning();
+                            this.score += 100;
+                            this.gainXP(25);
+                            this.audio.playSound('eatGhost');
+                            projectilesToRemove.push(index);
+                        }
+                    });
+
+                    // Remove if out of bounds
+                    if (proj.x < 0 || proj.x > CANVAS_WIDTH || proj.y < 0 || proj.y > CANVAS_HEIGHT) {
+                        if (!projectilesToRemove.includes(index)) {
+                            projectilesToRemove.push(index);
+                        }
+                    }
+                });
+
+                // Remove used/oob projectiles
+                for (let i = projectilesToRemove.length - 1; i >= 0; i--) {
+                    this.projectiles.splice(projectilesToRemove[i], 1);
+                }
+            }
+
+            // ==== ENDLESS SCALING ====
+            startNextWave() {
+                this.waveNumber++;
+                this.map.reset();
+                this.pacman.reset();
+                this.ghosts = this.createGhosts();
+                this.fireTrail = [];
+                this.magnetizedPellets = [];
+                this.projectiles = [];
+                this.powerPelletTimer = 0;
+                this.ghostMultiplier = 1;
+
+                // Show wave notification
+                this.waveNotification.textContent = `WAVE ${this.waveNumber}`;
+                this.waveNotification.style.display = 'block';
+                setTimeout(() => {
+                    this.waveNotification.style.display = 'none';
+                }, 2000);
             }
 
             gameOver() {
@@ -1234,6 +1801,16 @@
             updateUI() {
                 this.scoreElement.textContent = this.score;
                 this.livesElement.textContent = this.lives;
+
+                // Update XP bar
+                const xpPercent = (this.xp / this.xpToNextLevel) * 100;
+                this.xpFillElement.style.width = xpPercent + '%';
+                this.levelElement.textContent = this.level;
+                this.currentXpElement.textContent = this.xp;
+                this.xpNeededElement.textContent = this.xpToNextLevel;
+
+                // Update perks display
+                this.updatePerksDisplay();
             }
 
             draw() {
@@ -1243,6 +1820,69 @@
 
                 // Draw map
                 this.map.draw(this.ctx);
+
+                // ==== Draw Fire Trail (Trail Blazer perk) ====
+                this.fireTrail.forEach(trail => {
+                    const px = trail.x * TILE_SIZE + TILE_SIZE / 2;
+                    const py = trail.y * TILE_SIZE + TILE_SIZE / 2;
+                    const age = Date.now() - trail.timestamp;
+                    const alpha = 1 - (age / FIRE_TRAIL_DURATION);
+
+                    // Outer glow
+                    const gradient = this.ctx.createRadialGradient(px, py, 0, px, py, TILE_SIZE / 2);
+                    gradient.addColorStop(0, `rgba(255, 150, 0, ${alpha * 0.8})`);
+                    gradient.addColorStop(0.5, `rgba(255, 80, 0, ${alpha * 0.5})`);
+                    gradient.addColorStop(1, `rgba(255, 0, 0, 0)`);
+
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.beginPath();
+                    this.ctx.arc(px, py, TILE_SIZE / 2, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Core
+                    this.ctx.fillStyle = `rgba(255, 255, 100, ${alpha * 0.9})`;
+                    this.ctx.beginPath();
+                    this.ctx.arc(px, py, 3, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
+
+                // ==== Draw Magnetized Pellets ====
+                this.magnetizedPellets.forEach(pellet => {
+                    this.ctx.fillStyle = COLORS.PELLET;
+                    this.ctx.beginPath();
+                    const size = pellet.type === 3 ? 6 : 2;
+                    this.ctx.arc(pellet.x, pellet.y, size, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Magnetic glow effect
+                    this.ctx.fillStyle = 'rgba(0, 200, 255, 0.3)';
+                    this.ctx.beginPath();
+                    this.ctx.arc(pellet.x, pellet.y, size + 4, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
+
+                // ==== Draw Projectiles (Bullet perk) ====
+                this.projectiles.forEach(proj => {
+                    // Projectile trail
+                    this.ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(proj.x - proj.dx * 3, proj.y - proj.dy * 3);
+                    this.ctx.lineTo(proj.x, proj.y);
+                    this.ctx.stroke();
+
+                    // Projectile core
+                    this.ctx.fillStyle = '#ffff00';
+                    this.ctx.beginPath();
+                    this.ctx.arc(proj.x, proj.y, 4, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Glow
+                    this.ctx.fillStyle = 'rgba(255, 200, 0, 0.4)';
+                    this.ctx.beginPath();
+                    this.ctx.arc(proj.x, proj.y, 7, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
 
                 // Draw ghosts
                 const flashTime = this.powerPelletTimer > 0 &&
@@ -1259,6 +1899,14 @@
                     this.ctx.font = '16px "Courier New", monospace';
                     this.ctx.textAlign = 'center';
                     this.ctx.fillText('READY!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
+                }
+
+                // Draw wave number in corner
+                if (this.waveNumber > 1) {
+                    this.ctx.fillStyle = '#ffd700';
+                    this.ctx.font = '12px "Courier New", monospace';
+                    this.ctx.textAlign = 'right';
+                    this.ctx.fillText(`WAVE ${this.waveNumber}`, CANVAS_WIDTH - 10, 20);
                 }
             }
 
