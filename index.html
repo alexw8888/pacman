@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pac-Man</title>
+    <title>Arcade Classics</title>
     <style>
         * {
             margin: 0;
@@ -19,6 +19,90 @@
             align-items: center;
             min-height: 100vh;
             font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+
+        /* Game Selection Menu */
+        #gameMenu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, #1a1a3a 0%, #000 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        #gameMenu.hidden {
+            display: none;
+        }
+
+        #menuTitle {
+            color: #ffd700;
+            font-size: 48px;
+            text-shadow: 0 0 20px #ffd700, 0 0 40px #ff6600;
+            margin-bottom: 60px;
+            animation: titleGlow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes titleGlow {
+            from {
+                text-shadow: 0 0 20px #ffd700, 0 0 40px #ff6600;
+            }
+
+            to {
+                text-shadow: 0 0 30px #ffd700, 0 0 60px #ff6600, 0 0 80px #ff3300;
+            }
+        }
+
+        .game-btn {
+            width: 280px;
+            padding: 20px 40px;
+            margin: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            font-weight: bold;
+            border: 3px solid;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .game-btn.pacman {
+            background: linear-gradient(180deg, #ffff00 0%, #ccaa00 100%);
+            border-color: #ffff00;
+            color: #000;
+        }
+
+        .game-btn.pacman:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 30px #ffff00;
+        }
+
+        .game-btn.galaga {
+            background: linear-gradient(180deg, #00ffff 0%, #0088aa 100%);
+            border-color: #00ffff;
+            color: #000;
+        }
+
+        .game-btn.galaga:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 30px #00ffff;
+        }
+
+        #menuStars {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
             overflow: hidden;
         }
 
@@ -214,11 +298,30 @@
             margin-top: 5px;
             width: 448px;
         }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Galaga specific styles */
+        #stageIndicator {
+            color: #ffd700;
+            font-size: 14px;
+            text-align: right;
+        }
     </style>
 </head>
 
 <body>
-    <div id="gameContainer">
+    <!-- Game Selection Menu -->
+    <div id="gameMenu">
+        <div id="menuStars"></div>
+        <h1 id="menuTitle">ARCADE CLASSICS</h1>
+        <button class="game-btn pacman" onclick="startPacman()">🟡 PAC-MAN</button>
+        <button class="game-btn galaga" onclick="startGalaga()">🚀 GALAGA</button>
+    </div>
+
+    <div id="gameContainer" class="hidden">
         <div id="scoreBoard">
             <span>SCORE: <span id="score">0</span></span>
             <span>HIGH SCORE: <span id="highScore">0</span></span>
@@ -1326,7 +1429,6 @@
                 this.highScoreElement.textContent = this.highScore;
 
                 this.setupInput();
-                this.gameLoop();
             }
 
             createGhosts() {
@@ -1339,12 +1441,18 @@
             }
 
             setupInput() {
-                document.addEventListener('keydown', (e) => {
+                this.keyHandler = (e) => {
                     if (e.code === 'Space') {
                         if (this.gameState === 'waiting' || this.gameState === 'gameover' || this.gameState === 'won') {
                             this.startGame();
                         }
                         e.preventDefault();
+                    }
+
+                    if (e.code === 'Escape') {
+                        this.cleanup();
+                        showMenu();
+                        return;
                     }
 
                     if (this.gameState !== 'playing') return;
@@ -1371,7 +1479,12 @@
                             e.preventDefault();
                             break;
                     }
-                });
+                };
+                document.addEventListener('keydown', this.keyHandler);
+            }
+
+            cleanup() {
+                document.removeEventListener('keydown', this.keyHandler);
             }
 
             startGame() {
@@ -1911,17 +2024,534 @@
             }
 
             gameLoop() {
+                if (currentGame !== this) return;
                 this.update();
                 this.draw();
                 requestAnimationFrame(() => this.gameLoop());
             }
         }
 
-        // ==================== START GAME ====================
+        // ==================== GALAGA GAME ====================
+        const GALAGA_WIDTH = 448;
+        const GALAGA_HEIGHT = 496;
+
+        class GalagaGame {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.scoreElement = document.getElementById('score');
+                this.highScoreElement = document.getElementById('highScore');
+                this.livesElement = document.getElementById('lives');
+                this.messageElement = document.getElementById('message');
+
+                // Hide Pac-Man specific UI
+                document.getElementById('xpContainer').classList.add('hidden');
+                document.getElementById('activePerks').classList.add('hidden');
+
+                this.score = 0;
+                this.highScore = parseInt(localStorage.getItem('galagaHighScore')) || 0;
+                this.lives = 3;
+                this.stage = 1;
+                this.gameState = 'waiting';
+
+                this.player = null;
+                this.enemies = [];
+                this.playerBullets = [];
+                this.enemyBullets = [];
+                this.stars = [];
+                this.explosions = [];
+
+                this.keys = {};
+                this.formationComplete = false;
+                this.divingEnemies = [];
+                this.diveTimer = 0;
+                this.enemyShootTimer = 0;
+
+                this.highScoreElement.textContent = this.highScore;
+                this.initStars();
+                this.setupInput();
+            }
+
+            initStars() {
+                for (let i = 0; i < 50; i++) {
+                    this.stars.push({
+                        x: Math.random() * GALAGA_WIDTH,
+                        y: Math.random() * GALAGA_HEIGHT,
+                        speed: 0.5 + Math.random() * 1.5,
+                        size: Math.random() < 0.3 ? 2 : 1
+                    });
+                }
+            }
+
+            setupInput() {
+                this.keyDownHandler = (e) => {
+                    this.keys[e.code] = true;
+                    if (e.code === 'Space') {
+                        if (this.gameState === 'waiting' || this.gameState === 'gameover') {
+                            this.startGame();
+                        } else if (this.gameState === 'playing') {
+                            this.playerShoot();
+                        }
+                        e.preventDefault();
+                    }
+                    if (e.code === 'Escape') {
+                        this.cleanup();
+                        showMenu();
+                    }
+                };
+                this.keyUpHandler = (e) => {
+                    this.keys[e.code] = false;
+                };
+                document.addEventListener('keydown', this.keyDownHandler);
+                document.addEventListener('keyup', this.keyUpHandler);
+            }
+
+            cleanup() {
+                document.removeEventListener('keydown', this.keyDownHandler);
+                document.removeEventListener('keyup', this.keyUpHandler);
+            }
+
+            startGame() {
+                this.score = 0;
+                this.lives = 3;
+                this.stage = 1;
+                this.gameState = 'playing';
+                this.player = { x: GALAGA_WIDTH / 2, y: GALAGA_HEIGHT - 40, width: 24, height: 24 };
+                this.enemies = [];
+                this.playerBullets = [];
+                this.enemyBullets = [];
+                this.explosions = [];
+                this.divingEnemies = [];
+                this.createFormation();
+                this.messageElement.textContent = '';
+                this.updateUI();
+            }
+
+            createFormation() {
+                this.enemies = [];
+                const startY = 60;
+                const cols = 10;
+                const spacing = 32;
+                const offsetX = (GALAGA_WIDTH - (cols - 1) * spacing) / 2;
+
+                // Row 1-2: Boss Galaga (green)
+                for (let row = 0; row < 2; row++) {
+                    for (let col = 2; col < 8; col++) {
+                        this.enemies.push({
+                            type: 'boss',
+                            x: offsetX + col * spacing,
+                            y: -50 - row * 30,
+                            targetY: startY + row * 28,
+                            targetX: offsetX + col * spacing,
+                            width: 24, height: 24,
+                            alive: true,
+                            entering: true,
+                            diving: false,
+                            diveAngle: 0,
+                            health: row === 0 ? 2 : 1
+                        });
+                    }
+                }
+                // Row 3-4: Butterflies (red)
+                for (let row = 0; row < 2; row++) {
+                    for (let col = 1; col < 9; col++) {
+                        this.enemies.push({
+                            type: 'butterfly',
+                            x: offsetX + col * spacing,
+                            y: -100 - row * 30,
+                            targetY: startY + (row + 2) * 28,
+                            targetX: offsetX + col * spacing,
+                            width: 20, height: 20,
+                            alive: true,
+                            entering: true,
+                            diving: false,
+                            diveAngle: 0,
+                            health: 1
+                        });
+                    }
+                }
+                // Row 5-6: Bees (yellow)
+                for (let row = 0; row < 2; row++) {
+                    for (let col = 0; col < 10; col++) {
+                        this.enemies.push({
+                            type: 'bee',
+                            x: offsetX + col * spacing,
+                            y: -150 - row * 30,
+                            targetY: startY + (row + 4) * 28,
+                            targetX: offsetX + col * spacing,
+                            width: 18, height: 18,
+                            alive: true,
+                            entering: true,
+                            diving: false,
+                            diveAngle: 0,
+                            health: 1
+                        });
+                    }
+                }
+                this.formationComplete = false;
+            }
+
+            playerShoot() {
+                if (this.playerBullets.length < 2) {
+                    this.playerBullets.push({
+                        x: this.player.x,
+                        y: this.player.y - 10,
+                        speed: 10
+                    });
+                }
+            }
+
+            update() {
+                if (this.gameState !== 'playing') return;
+
+                // Update stars
+                this.stars.forEach(star => {
+                    star.y += star.speed;
+                    if (star.y > GALAGA_HEIGHT) {
+                        star.y = 0;
+                        star.x = Math.random() * GALAGA_WIDTH;
+                    }
+                });
+
+                // Player movement
+                const moveSpeed = 4;
+                if (this.keys['ArrowLeft'] || this.keys['KeyA']) {
+                    this.player.x = Math.max(20, this.player.x - moveSpeed);
+                }
+                if (this.keys['ArrowRight'] || this.keys['KeyD']) {
+                    this.player.x = Math.min(GALAGA_WIDTH - 20, this.player.x + moveSpeed);
+                }
+
+                // Update enemies entering formation
+                let allInFormation = true;
+                this.enemies.forEach(enemy => {
+                    if (!enemy.alive) return;
+
+                    if (enemy.entering) {
+                        const dy = enemy.targetY - enemy.y;
+                        if (Math.abs(dy) > 2) {
+                            enemy.y += dy * 0.05;
+                            allInFormation = false;
+                        } else {
+                            enemy.y = enemy.targetY;
+                            enemy.entering = false;
+                        }
+                    } else if (enemy.diving) {
+                        // Dive attack movement
+                        enemy.diveAngle += 0.03;
+                        enemy.x += Math.sin(enemy.diveAngle) * 3;
+                        enemy.y += 4;
+
+                        // Shoot while diving
+                        if (Math.random() < 0.02) {
+                            this.enemyBullets.push({
+                                x: enemy.x, y: enemy.y + 10, speed: 5
+                            });
+                        }
+
+                        // Return to formation
+                        if (enemy.y > GALAGA_HEIGHT + 20) {
+                            enemy.y = -30;
+                            enemy.x = enemy.targetX;
+                            enemy.diving = false;
+                            enemy.entering = true;
+                        }
+                    } else {
+                        // Slight hovering motion
+                        enemy.x = enemy.targetX + Math.sin(Date.now() / 500 + enemy.targetX) * 3;
+                    }
+                });
+
+                if (allInFormation && !this.formationComplete) {
+                    this.formationComplete = true;
+                }
+
+                // Trigger dive attacks
+                this.diveTimer++;
+                if (this.formationComplete && this.diveTimer > 60) {
+                    this.diveTimer = 0;
+                    const availableEnemies = this.enemies.filter(e => e.alive && !e.diving && !e.entering);
+                    if (availableEnemies.length > 0 && this.divingEnemies.length < 2 + Math.floor(this.stage / 2)) {
+                        const enemy = availableEnemies[Math.floor(Math.random() * availableEnemies.length)];
+                        enemy.diving = true;
+                        enemy.diveAngle = 0;
+                    }
+                }
+
+                // Enemy shooting from formation
+                this.enemyShootTimer++;
+                if (this.formationComplete && this.enemyShootTimer > 90) {
+                    this.enemyShootTimer = 0;
+                    const shooters = this.enemies.filter(e => e.alive && !e.diving);
+                    if (shooters.length > 0) {
+                        const shooter = shooters[Math.floor(Math.random() * shooters.length)];
+                        this.enemyBullets.push({
+                            x: shooter.x, y: shooter.y + 10, speed: 4
+                        });
+                    }
+                }
+
+                // Update player bullets
+                this.playerBullets.forEach((bullet, i) => {
+                    bullet.y -= bullet.speed;
+                    if (bullet.y < 0) {
+                        this.playerBullets.splice(i, 1);
+                    }
+                });
+
+                // Update enemy bullets
+                this.enemyBullets.forEach((bullet, i) => {
+                    bullet.y += bullet.speed;
+                    if (bullet.y > GALAGA_HEIGHT) {
+                        this.enemyBullets.splice(i, 1);
+                    }
+                });
+
+                // Check bullet-enemy collisions
+                for (let bi = this.playerBullets.length - 1; bi >= 0; bi--) {
+                    const bullet = this.playerBullets[bi];
+                    for (let ei = 0; ei < this.enemies.length; ei++) {
+                        const enemy = this.enemies[ei];
+                        if (!enemy.alive) continue;
+
+                        if (Math.abs(bullet.x - enemy.x) < enemy.width / 2 &&
+                            Math.abs(bullet.y - enemy.y) < enemy.height / 2) {
+                            this.playerBullets.splice(bi, 1);
+                            enemy.health--;
+                            if (enemy.health <= 0) {
+                                enemy.alive = false;
+                                this.explosions.push({ x: enemy.x, y: enemy.y, frame: 0 });
+                                // Score based on type and state
+                                let points = enemy.type === 'boss' ? 400 : enemy.type === 'butterfly' ? 160 : 100;
+                                if (enemy.diving) points *= 2;
+                                this.score += points;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Check enemy bullet-player collision
+                this.enemyBullets.forEach((bullet, i) => {
+                    if (Math.abs(bullet.x - this.player.x) < 12 &&
+                        Math.abs(bullet.y - this.player.y) < 12) {
+                        this.enemyBullets.splice(i, 1);
+                        this.playerDeath();
+                    }
+                });
+
+                // Check enemy-player collision
+                this.enemies.forEach(enemy => {
+                    if (!enemy.alive) return;
+                    if (Math.abs(enemy.x - this.player.x) < 16 &&
+                        Math.abs(enemy.y - this.player.y) < 16) {
+                        enemy.alive = false;
+                        this.playerDeath();
+                    }
+                });
+
+                // Update explosions
+                this.explosions.forEach((exp, i) => {
+                    exp.frame++;
+                    if (exp.frame > 15) this.explosions.splice(i, 1);
+                });
+
+                // Check win condition
+                if (this.enemies.every(e => !e.alive)) {
+                    this.stage++;
+                    this.createFormation();
+                }
+
+                this.updateUI();
+            }
+
+            playerDeath() {
+                this.lives--;
+                this.explosions.push({ x: this.player.x, y: this.player.y, frame: 0 });
+                if (this.lives <= 0) {
+                    this.gameOver();
+                } else {
+                    this.player.x = GALAGA_WIDTH / 2;
+                }
+            }
+
+            gameOver() {
+                this.gameState = 'gameover';
+                if (this.score > this.highScore) {
+                    this.highScore = this.score;
+                    localStorage.setItem('galagaHighScore', this.highScore);
+                    this.highScoreElement.textContent = this.highScore;
+                }
+                this.messageElement.textContent = 'GAME OVER\nPRESS SPACE TO RESTART\nESC FOR MENU';
+            }
+
+            updateUI() {
+                this.scoreElement.textContent = this.score;
+                this.livesElement.textContent = this.lives;
+            }
+
+            draw() {
+                // Clear with black
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, GALAGA_WIDTH, GALAGA_HEIGHT);
+
+                // Draw stars
+                this.ctx.fillStyle = '#fff';
+                this.stars.forEach(star => {
+                    this.ctx.fillRect(star.x, star.y, star.size, star.size);
+                });
+
+                // Draw enemies
+                this.enemies.forEach(enemy => {
+                    if (!enemy.alive) return;
+
+                    let color;
+                    if (enemy.type === 'boss') color = '#00ff00';
+                    else if (enemy.type === 'butterfly') color = '#ff4444';
+                    else color = '#ffff00';
+
+                    this.ctx.fillStyle = color;
+                    // Simple enemy shape
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(enemy.x, enemy.y - enemy.height / 2);
+                    this.ctx.lineTo(enemy.x - enemy.width / 2, enemy.y + enemy.height / 2);
+                    this.ctx.lineTo(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+                    this.ctx.closePath();
+                    this.ctx.fill();
+
+                    // Wings for boss
+                    if (enemy.type === 'boss') {
+                        this.ctx.fillRect(enemy.x - enemy.width / 2 - 4, enemy.y, 4, 8);
+                        this.ctx.fillRect(enemy.x + enemy.width / 2, enemy.y, 4, 8);
+                    }
+                });
+
+                // Draw player
+                if (this.player && this.gameState === 'playing') {
+                    this.ctx.fillStyle = '#00ffff';
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(this.player.x, this.player.y - 12);
+                    this.ctx.lineTo(this.player.x - 12, this.player.y + 12);
+                    this.ctx.lineTo(this.player.x + 12, this.player.y + 12);
+                    this.ctx.closePath();
+                    this.ctx.fill();
+                    // Cockpit
+                    this.ctx.fillStyle = '#ffffff';
+                    this.ctx.fillRect(this.player.x - 3, this.player.y - 4, 6, 6);
+                }
+
+                // Draw player bullets
+                this.ctx.fillStyle = '#ffffff';
+                this.playerBullets.forEach(bullet => {
+                    this.ctx.fillRect(bullet.x - 2, bullet.y - 6, 4, 12);
+                });
+
+                // Draw enemy bullets
+                this.ctx.fillStyle = '#ff6666';
+                this.enemyBullets.forEach(bullet => {
+                    this.ctx.beginPath();
+                    this.ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
+
+                // Draw explosions
+                this.explosions.forEach(exp => {
+                    const alpha = 1 - exp.frame / 15;
+                    const size = 10 + exp.frame * 2;
+                    this.ctx.fillStyle = `rgba(255, ${150 - exp.frame * 10}, 0, ${alpha})`;
+                    this.ctx.beginPath();
+                    this.ctx.arc(exp.x, exp.y, size, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
+
+                // Draw stage indicator
+                this.ctx.fillStyle = '#ffd700';
+                this.ctx.font = '12px "Courier New", monospace';
+                this.ctx.textAlign = 'right';
+                this.ctx.fillText(`STAGE ${this.stage}`, GALAGA_WIDTH - 10, 20);
+
+                // Ready text
+                if (this.gameState === 'waiting') {
+                    this.ctx.fillStyle = '#00ffff';
+                    this.ctx.font = '16px "Courier New", monospace';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText('GALAGA', GALAGA_WIDTH / 2, GALAGA_HEIGHT / 2 - 20);
+                    this.ctx.fillText('PRESS SPACE TO START', GALAGA_WIDTH / 2, GALAGA_HEIGHT / 2 + 20);
+                    this.ctx.fillText('ESC FOR MENU', GALAGA_WIDTH / 2, GALAGA_HEIGHT / 2 + 50);
+                }
+            }
+
+            gameLoop() {
+                if (currentGame !== this) return;
+                this.update();
+                this.draw();
+                requestAnimationFrame(() => this.gameLoop());
+            }
+        }
+
+        // ==================== GAME MANAGER ====================
+        let currentGame = null;
+
+        function showMenu() {
+            if (currentGame && currentGame.cleanup) {
+                currentGame.cleanup();
+            }
+            currentGame = null;
+            document.getElementById('gameMenu').classList.remove('hidden');
+            document.getElementById('gameContainer').classList.add('hidden');
+        }
+
+        function startPacman() {
+            document.getElementById('gameMenu').classList.add('hidden');
+            document.getElementById('gameContainer').classList.remove('hidden');
+            document.getElementById('xpContainer').classList.remove('hidden');
+            document.getElementById('activePerks').classList.remove('hidden');
+            document.getElementById('message').textContent = 'PRESS SPACE TO START';
+            const game = new Game();
+            currentGame = game;
+            game.gameLoop();
+        }
+
+        function startGalaga() {
+            document.getElementById('gameMenu').classList.add('hidden');
+            document.getElementById('gameContainer').classList.remove('hidden');
+            document.getElementById('message').textContent = '';
+            const game = new GalagaGame();
+            currentGame = game;
+            game.gameLoop();
+        }
+
+        // Show menu on load
         window.onload = () => {
-            new Game();
+            // Initialize menu stars animation
+            const starsContainer = document.getElementById('menuStars');
+            for (let i = 0; i < 100; i++) {
+                const star = document.createElement('div');
+                star.style.cssText = `
+                    position: absolute;
+                    background: white;
+                    width: ${Math.random() * 2 + 1}px;
+                    height: ${Math.random() * 2 + 1}px;
+                    left: ${Math.random() * 100}%;
+                    top: ${Math.random() * 100}%;
+                    opacity: ${Math.random() * 0.8 + 0.2};
+                    animation: twinkle ${Math.random() * 3 + 1}s ease-in-out infinite alternate;
+                `;
+                starsContainer.appendChild(star);
+            }
         };
     </script>
+    <style>
+        @keyframes twinkle {
+            from {
+                opacity: 0.2;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+    </style>
 </body>
 
 </html>
