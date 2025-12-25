@@ -100,7 +100,103 @@
             color: #00ff00;
         }
 
-        /* Perk Overlay Styles */
+        /* Menu Styles */
+        #menu-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+
+        .menu-grid {
+            display: flex;
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .menu-item {
+            width: 200px;
+            height: 250px;
+            background: #111;
+            border: 4px solid #222;
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .menu-item:hover {
+            transform: translateY(-10px);
+            border-color: #ffff00;
+            box-shadow: 0 10px 30px rgba(255, 255, 0, 0.3);
+        }
+
+        .menu-item img {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 20px;
+            image-rendering: pixelated;
+        }
+
+        /* Mock images for now using CSS shapes */
+        .icon {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+        }
+
+        .icon-pacman {
+            background: #ffff00;
+            border-radius: 50%;
+            clip-path: polygon(100% 0, 100% 100%, 50% 50%, 100% 0, 0 0, 0 100%, 100% 100%);
+        }
+
+        .icon-galaga {
+            width: 0;
+            height: 0;
+            border-left: 40px solid transparent;
+            border-right: 40px solid transparent;
+            border-bottom: 80px solid #ff0000;
+            position: relative;
+        }
+
+        .icon-galaga::after {
+            content: '';
+            position: absolute;
+            left: -20px;
+            top: 40px;
+            width: 40px;
+            height: 20px;
+            background: #ffffff;
+        }
+
+        .menu-item span {
+            font-size: 24px;
+            color: #fff;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .menu-title {
+            font-size: 48px;
+            color: #2121ff;
+            text-shadow: 0 0 10px #2121ff;
+            margin-bottom: 10px;
+        }
+
+        /* Perk Overlay Styles (Restored) */
         #perk-overlay {
             position: absolute;
             top: 0;
@@ -165,9 +261,26 @@
 <body>
 
     <div id="game-container">
+        <!-- Game Selection Menu -->
+        <div id="menu-overlay">
+            <h1 class="menu-title">ARCADE HUB</h1>
+            <p>SELECT YOUR GAME</p>
+            <div class="menu-grid">
+                <div class="menu-item" onclick="startGame('pacman')">
+                    <div class="icon icon-pacman"></div>
+                    <span>Pac-Man</span>
+                </div>
+                <div class="menu-item" onclick="startGame('galaga')">
+                    <div class="icon icon-galaga"></div>
+                    <span>Galaga</span>
+                </div>
+            </div>
+        </div>
+
         <div id="ui">
             <div>SCORE: <span id="score">0</span></div>
-            <div style="display: flex; align-items: center;">
+            <div>HI-SCORE: <span id="high-score">0</span></div>
+            <div id="pacman-xp-ui" style="display: flex; align-items: center;">
                 LVL: <span id="level-display">1</span>
                 <div id="xp-container">
                     <div id="xp-bar"></div>
@@ -707,7 +820,10 @@
         /**
          * GAME ENGINE
          */
-        class Game {
+        /**
+         * PAC-MAN GAME ENGINE
+         */
+        class PacManGame {
             constructor() {
                 this.canvas = document.getElementById('gameCanvas');
                 this.ctx = this.canvas.getContext('2d');
@@ -721,12 +837,13 @@
                 this.frightenedTimer = 0;
                 this.xp = 0;
                 this.level = 1;
-                this.maxXp = 100;
+                this.maxXp = 500;
                 this.perks = [];
                 this.projectiles = [];
                 this.difficultyCycle = 1;
                 this.frameCount = 0;
 
+                window.game = this;
                 this.init();
                 this.bindEvents();
             }
@@ -763,7 +880,7 @@
             }
 
             bindEvents() {
-                window.addEventListener('keydown', (e) => {
+                this._onKeyDown = (e) => {
                     if (this.state === 'START' || this.state === 'GAMEOVER') {
                         if (e.code === 'Space') this.start();
                         return;
@@ -775,7 +892,8 @@
                         case 'ArrowLeft': this.pacman.nextDir = DIRECTIONS.LEFT; break;
                         case 'ArrowRight': this.pacman.nextDir = DIRECTIONS.RIGHT; break;
                     }
-                });
+                };
+                window.addEventListener('keydown', this._onKeyDown);
             }
 
             start() {
@@ -829,7 +947,7 @@
             levelUp() {
                 this.xp = 0;
                 this.level++;
-                this.maxXp = Math.floor(this.maxXp * 1.5);
+                this.maxXp = Math.floor(this.maxXp * 2.0);
                 this.state = 'LEVEL_UP';
                 this.showPerkMenu();
                 playSound(660, 'square', 0.2);
@@ -1011,13 +1129,275 @@
                 if (this.state !== 'PLAYING') return;
                 this.update();
                 this.draw();
-                requestAnimationFrame(() => this.loop());
+                this.requestId = requestAnimationFrame(() => this.loop());
+            }
+
+            stop() {
+                if (this.requestId) cancelAnimationFrame(this.requestId);
+                window.removeEventListener('keydown', this._onKeyDown);
             }
         }
 
-        const game = new Game();
-        // Inital Draw
-        game.draw();
+        /**
+         * GALAGA GAME ENGINE
+         */
+        class GalagaGame {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.canvas.width = 448; // Classic vertical aspect ratio
+                this.canvas.height = 512;
+
+                this.score = 0;
+                this.lives = 3;
+                this.state = 'PLAYING'; // PLAYING, GAMEOVER
+                this.ship = new GalagaShip(this.canvas.width / 2, this.canvas.height - 40);
+                this.bullets = [];
+                this.enemyBullets = [];
+                this.enemies = [];
+                this.stars = [];
+                this.frameCount = 0;
+
+                window.game = this;
+                this.init();
+                this.bindEvents();
+            }
+
+            init() {
+                // Create stars
+                for (let i = 0; i < 100; i++) {
+                    this.stars.push({
+                        x: Math.random() * this.canvas.width,
+                        y: Math.random() * this.canvas.height,
+                        speed: 0.5 + Math.random() * 2,
+                        color: `rgb(${Math.random() * 255}, ${Math.random() * 255}, 255)`
+                    });
+                }
+                this.spawnSwarm();
+            }
+
+            spawnSwarm() {
+                const cols = 8;
+                const rows = 4;
+                const spacingX = 40;
+                const spacingY = 30;
+                const startX = (this.canvas.width - (cols - 1) * spacingX) / 2;
+                const startY = 80;
+
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        this.enemies.push(new GalagaEnemy(
+                            startX + c * spacingX,
+                            startY + r * spacingY,
+                            r === 0 ? 'commander' : (r === 1 ? 'red' : 'blue')
+                        ));
+                    }
+                }
+            }
+
+            bindEvents() {
+                this.keyState = {};
+                this._onKeyDown = (e) => {
+                    this.keyState[e.code] = true;
+                    if (e.code === 'Space' && this.state === 'PLAYING') {
+                        this.shoot();
+                    }
+                    if (e.code === 'Space' && this.state === 'GAMEOVER') {
+                        location.reload(); // Simple way to restart for now
+                    }
+                };
+                this._onKeyUp = (e) => this.keyState[e.code] = false;
+
+                window.addEventListener('keydown', this._onKeyDown);
+                window.addEventListener('keyup', this._onKeyUp);
+            }
+
+            shoot() {
+                if (this.bullets.length < 2) {
+                    this.bullets.push({ x: this.ship.x, y: this.ship.y - 10 });
+                    playSound(880, 'square', 0.05);
+                }
+            }
+
+            update() {
+                if (this.state !== 'PLAYING') return;
+
+                // Move Stars
+                this.stars.forEach(s => {
+                    s.y += s.speed;
+                    if (s.y > this.canvas.height) s.y = 0;
+                });
+
+                // Move Ship
+                if (this.keyState['ArrowLeft'] && this.ship.x > 20) this.ship.x -= 4;
+                if (this.keyState['ArrowRight'] && this.ship.x < this.canvas.width - 20) this.ship.x += 4;
+
+                // Move Bullets
+                this.bullets.forEach((b, i) => {
+                    b.y -= 8;
+                    if (b.y < 0) this.bullets.splice(i, 1);
+                });
+
+                // Move Enemy Bullets
+                this.enemyBullets.forEach((b, i) => {
+                    b.y += 4;
+                    if (b.y > this.canvas.height) this.enemyBullets.splice(i, 1);
+
+                    // Check Collision with Ship
+                    if (Math.hypot(b.x - this.ship.x, b.y - this.ship.y) < 15) {
+                        this.enemyBullets.splice(i, 1);
+                        this.hitShip();
+                    }
+                });
+
+                // Move Enemies & Collisions
+                let swarmDirection = Math.sin(this.frameCount * 0.02) * 20;
+                this.enemies.forEach((en, i) => {
+                    en.update(swarmDirection);
+
+                    // Shooting
+                    if (Math.random() < 0.002 && en.state === 'FORM') {
+                        this.enemyBullets.push({ x: en.x, y: en.y });
+                    }
+
+                    // Bullet Collision
+                    this.bullets.forEach((b, bi) => {
+                        if (Math.hypot(b.x - en.x, b.y - en.y) < 15) {
+                            this.enemies.splice(i, 1);
+                            this.bullets.splice(bi, 1);
+                            this.score += en.points;
+                            playSound(440, 'sawtooth', 0.1);
+                        }
+                    });
+
+                    // Ship Collision
+                    if (Math.hypot(en.x - this.ship.x, en.y - this.ship.y) < 20) {
+                        this.hitShip();
+                    }
+                });
+
+                if (this.enemies.length === 0) this.spawnSwarm();
+
+                this.frameCount++;
+                document.getElementById('score').innerText = this.score;
+            }
+
+            hitShip() {
+                this.lives--;
+                document.getElementById('lives').innerText = this.lives;
+                playSound(100, 'sawtooth', 0.5);
+                if (this.lives <= 0) {
+                    this.state = 'GAMEOVER';
+                    const hiScoreEl = document.getElementById('high-score');
+                    if (this.score > parseInt(hiScoreEl.innerText)) {
+                        hiScoreEl.innerText = this.score;
+                    }
+                    document.getElementById('overlay-title').innerText = 'GAME OVER';
+                    document.getElementById('overlay-msg').innerText = 'PRESS SPACE TO RESTART';
+                    document.getElementById('overlay').style.display = 'flex';
+                } else {
+                    this.ship.x = this.canvas.width / 2;
+                }
+            }
+
+            draw() {
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Stars
+                this.stars.forEach(s => {
+                    this.ctx.fillStyle = s.color;
+                    this.ctx.fillRect(s.x, s.y, 2, 2);
+                });
+
+                // Ship
+                this.ship.draw(this.ctx);
+
+                // Bullets
+                this.ctx.fillStyle = '#fff';
+                this.bullets.forEach(b => this.ctx.fillRect(b.x - 1, b.y, 2, 8));
+                this.ctx.fillStyle = '#f00';
+                this.enemyBullets.forEach(b => this.ctx.fillRect(b.x - 1, b.y, 2, 8));
+
+                // Enemies
+                this.enemies.forEach(en => en.draw(this.ctx));
+            }
+
+            loop() {
+                this.update();
+                this.draw();
+                this.requestId = requestAnimationFrame(() => this.loop());
+            }
+
+            stop() {
+                if (this.requestId) cancelAnimationFrame(this.requestId);
+                window.removeEventListener('keydown', this._onKeyDown);
+                window.removeEventListener('keyup', this._onKeyUp);
+            }
+        }
+
+        class GalagaShip {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+            draw(ctx) {
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y - 15);
+                ctx.lineTo(this.x + 15, this.y + 15);
+                ctx.lineTo(this.x - 15, this.y + 15);
+                ctx.fill();
+                ctx.fillStyle = '#f00';
+                ctx.fillRect(this.x - 5, this.y, 10, 15);
+            }
+        }
+
+        class GalagaEnemy {
+            constructor(x, y, type) {
+                this.baseX = x;
+                this.baseY = y;
+                this.x = x;
+                this.y = y;
+                this.type = type;
+                this.state = 'FORM'; // FORM, DIVE
+                this.points = type === 'commander' ? 150 : (type === 'red' ? 80 : 50);
+                this.color = type === 'commander' ? '#00f' : (type === 'red' ? '#f00' : '#0f0');
+            }
+            update(offsetX) {
+                this.x = this.baseX + offsetX;
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y + 10);
+                ctx.lineTo(this.x + 10, this.y - 10);
+                ctx.lineTo(this.x - 10, this.y - 10);
+                ctx.fill();
+            }
+        }
+
+        /**
+         * GLOBAL CONTROLLER
+         */
+        let currentGame = null;
+
+        function startGame(type) {
+            if (currentGame) currentGame.stop();
+            document.getElementById('menu-overlay').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+
+            // UI visibility handling
+            if (type === 'pacman') {
+                document.getElementById('pacman-xp-ui').style.display = 'flex';
+                currentGame = new PacManGame();
+                currentGame.start();
+            } else {
+                document.getElementById('pacman-xp-ui').style.display = 'none';
+                currentGame = new GalagaGame();
+                currentGame.loop();
+            }
+        }
 
     </script>
 </body>
