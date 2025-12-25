@@ -1,0 +1,8 @@
+add another game to index.html
+the game to add is classic arcade game "Galaga"
+implement it as close to the original as possible
+when the webpage loads, user can select from a list of games to play, currently Pac-Man and Galaga are available
+keep the single file structure, do not create separate files for the game
+
+add a third game, another classic arcade game "Asteroids"
+implement it as close to the original as possible
