@@ -124,13 +124,20 @@
                 this.mouseY = 0;
                 this.mouseClicked = false;
 
+                this.keys = {}; // Track all keys
+
                 window.addEventListener('keydown', (e) => {
+                    this.keys[e.code] = true;
                     switch (e.code) {
                         case 'ArrowUp': this.lastKeyPressed = UP; break;
                         case 'ArrowDown': this.lastKeyPressed = DOWN; break;
                         case 'ArrowLeft': this.lastKeyPressed = LEFT; break;
                         case 'ArrowRight': this.lastKeyPressed = RIGHT; break;
                     }
+                });
+
+                window.addEventListener('keyup', (e) => {
+                    this.keys[e.code] = false;
                 });
 
                 // Mouse Handling for UI
@@ -154,6 +161,10 @@
                 const status = { x: this.mouseX, y: this.mouseY, clicked: this.mouseClicked };
                 this.mouseClicked = false; // Reset click
                 return status;
+            }
+
+            isKeyDown(code) {
+                return !!this.keys[code];
             }
         }
 
@@ -295,13 +306,14 @@
         }
 
         class Pacman {
-            constructor(startX, startY, map) {
+            constructor(startX, startY, map, game) {
                 this.x = startX * TILE_SIZE;
                 this.y = startY * TILE_SIZE;
                 this.speed = 2; // Pixels per frame
                 this.currentDir = NONE;
                 this.nextDir = NONE;
                 this.map = map;
+                this.game = game; // Store reference to game instance
                 this.mouthOpen = 0;
                 this.mouthSpeed = 0.1;
             }
@@ -338,20 +350,20 @@
 
                     // Audio: Play chomp when mouth closes
                     if (Math.abs(this.mouthOpen) < 0.05 && this.mouthSpeed > 0) {
-                        if (game && game.audio) game.audio.playChomp();
+                        if (this.game && this.game.audio) this.game.audio.playChomp();
                     }
 
                     // Perk: TRAIL BLAZER
-                    if (game.perks.includes('trail_blazer')) {
+                    if (this.game.perks.includes('trail_blazer')) {
                         const r = Math.round(this.y / TILE_SIZE);
                         const c = Math.round(this.x / TILE_SIZE);
-                        if (!game.fireTiles.find(f => f.r === r && f.c === c)) {
-                            game.fireTiles.push({ r, c, life: 4000 });
+                        if (!this.game.fireTiles.find(f => f.r === r && f.c === c)) {
+                            this.game.fireTiles.push({ r, c, life: 4000 });
                         }
                     }
 
                     // Perk: MAGNETISM
-                    if (game.perks.includes('magnetism')) {
+                    if (this.game.perks.includes('magnetism')) {
                         const magRange = 3; // Tiles
                         // Scan area around pacman
                         let centerR = Math.round(this.y / TILE_SIZE);
@@ -376,10 +388,10 @@
                                             // Suck it in
                                             let tile = this.map.layout[r][c];
                                             this.map.layout[r][c] = EMPTY;
-                                            if (tile === PELLET) game.pelletEaten(10);
+                                            if (tile === PELLET) this.game.pelletEaten(10);
                                             if (tile === POWER_PELLET) {
-                                                game.pelletEaten(50);
-                                                game.activatePowerMode();
+                                                this.game.pelletEaten(50);
+                                                this.game.activatePowerMode();
                                             }
                                         }
                                     }
@@ -397,11 +409,11 @@
                         let tile = this.map.layout[r][c];
                         if (tile === PELLET) {
                             this.map.layout[r][c] = EMPTY;
-                            game.pelletEaten(10);
+                            this.game.pelletEaten(10);
                         } else if (tile === POWER_PELLET) {
                             this.map.layout[r][c] = EMPTY;
-                            game.pelletEaten(50);
-                            game.activatePowerMode();
+                            this.game.pelletEaten(50);
+                            this.game.activatePowerMode();
                         }
                     }
                 }
@@ -696,8 +708,8 @@
             }
         }
 
-        class Game {
-            constructor() {
+        class PacmanGame {
+            constructor(inputHandler, audioController) {
                 this.score = 0;
 
                 // RPG State
@@ -710,8 +722,8 @@
                 this.projectiles = [];
                 this.bulletTimer = 0;
 
-                this.input = new InputHandler();
-                this.audio = new AudioController();
+                this.input = inputHandler;
+                this.audio = audioController;
                 this.map = new Map(JSON.parse(JSON.stringify(INITIAL_MAP_LAYOUT)));
                 // Count pellets
                 this.pelletCount = 0;
@@ -722,7 +734,7 @@
                         }
                     }
                 }
-                this.pacman = new Pacman(13.5, 22, this.map);
+                this.pacman = new Pacman(13.5, 22, this.map, this);
                 this.lives = 3;
 
                 // Fixed spawn definitions to correct tiles
@@ -869,7 +881,9 @@
             }
 
             init() {
-                requestAnimationFrame((t) => this.loop(t));
+                // No longer starts loop automatically
+                // requestAnimationFrame((t) => this.loop(t));
+                this.softReset(); // Ensure fresh start
             }
 
             update(dt) {
@@ -1191,15 +1205,8 @@
             }
 
 
-            loop(timestamp) {
-                const dt = timestamp - this.lastTime;
-                this.lastTime = timestamp;
-
-                this.update(dt);
-                this.draw();
-
-                requestAnimationFrame((t) => this.loop(t));
-            }
+            // Loop removed, driven by GameManager
+            // loop(timestamp) { ... }
 
             softReset() {
                 // Difficulty Scaling
@@ -1221,7 +1228,7 @@
                 this.ghosts[0].mode = 'SCATTER';
                 this.ghosts[0].dir = [LEFT, RIGHT][Math.floor(Math.random() * 2)]; // Force Blinky Horizontal
 
-                this.pacman = new Pacman(13.5, 22, this.map);
+                this.pacman = new Pacman(13.5, 22, this.map, this);
 
                 this.ghostsReleased = 1;
                 this.ghostReleaseTimer = 0;
@@ -1237,9 +1244,441 @@
             }
         }
 
+        // --- GALAGA CLASSES ---
+
+        class GalagaStar {
+            constructor() {
+                this.init();
+            }
+            init() {
+                this.x = Math.random() * CANVAS_WIDTH;
+                this.y = Math.random() * CANVAS_HEIGHT;
+                this.speed = 0.5 + Math.random() * 2;
+                this.size = Math.random() < 0.1 ? 2 : 1;
+                if (Math.random() < 0.05) this.color = ['#F00', '#0F0', '#00F', '#FF0'][Math.floor(Math.random() * 4)];
+                else this.color = '#FFF';
+            }
+            update() {
+                this.y += this.speed;
+                if (this.y > CANVAS_HEIGHT) this.init(); // Reset to top random
+                if (this.y < 0) this.y = 0; // Just in case init puts at bottom
+                if (this.y < 5 && Math.random() > 0.5) this.y = 0; // Reset logic fix: loop top
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.size, this.size);
+            }
+        }
+
+        class GalagaPlayer {
+            constructor(input) {
+                this.x = CANVAS_WIDTH / 2;
+                this.y = CANVAS_HEIGHT - 40;
+                this.width = 16;
+                this.height = 16;
+                this.speed = 3;
+                this.input = input;
+                this.cooldown = 0;
+            }
+
+            update(dt, game) {
+                // Use isKeyDown for smooth movement
+                if (game.input.isKeyDown('ArrowLeft')) this.x -= this.speed;
+                if (game.input.isKeyDown('ArrowRight')) this.x += this.speed;
+
+                if (this.x < 10) this.x = 10;
+                if (this.x > CANVAS_WIDTH - 10) this.x = CANVAS_WIDTH - 10;
+
+                // Shooting
+                // Space or Up or Click
+                if (game.input.mouseClicked || game.input.isKeyDown('ArrowUp') || game.input.isKeyDown('Space')) {
+                    if (this.cooldown <= 0) {
+                        game.projectiles.push(new GalagaBullet(this.x, this.y - 10, -1, true)); // Up
+                        this.cooldown = 300; // ms
+                        game.audio.playTone(400, 'square', 0.1);
+                    }
+                }
+                if (this.cooldown > 0) this.cooldown -= dt;
+            }
+
+            draw(ctx) {
+                ctx.fillStyle = '#FFF';
+                // Ship shape
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y - 8);
+                ctx.lineTo(this.x + 8, this.y + 8);
+                ctx.lineTo(this.x, this.y + 4);
+                ctx.lineTo(this.x - 8, this.y + 8);
+                ctx.fill();
+
+                ctx.fillStyle = '#F00';
+                ctx.fillRect(this.x - 2, this.y - 6, 4, 4);
+            }
+        }
+
+        class GalagaBullet {
+            constructor(x, y, dy, isPlayer) {
+                this.x = x;
+                this.y = y;
+                this.dy = dy; // Direction Y (1 or -1)
+                this.speed = 6;
+                this.isPlayer = isPlayer;
+                this.remove = false;
+            }
+            update() {
+                this.y += this.dy * this.speed;
+                if (this.y < 0 || this.y > CANVAS_HEIGHT) this.remove = true;
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.isPlayer ? '#FF0' : '#F0F';
+                ctx.fillRect(this.x - 1, this.y - 4, 2, 8);
+            }
+        }
+
+        class GalagaEnemy {
+            constructor(x, y, type) {
+                this.x = x; // Grid target X
+                this.y = y; // Grid target Y
+                this.realX = Math.random() * CANVAS_WIDTH; // Spawn pos
+                this.realY = -20;
+                this.type = type; // 0: Bee, 1: Butterfly, 2: Boss
+                this.state = 'ENTERING'; // ENTERING, GRID, DIVE
+                this.t = 0;
+                this.divePath = null;
+            }
+            update(dt, game) {
+                const time = Date.now();
+                // Formatting
+                if (this.state === 'ENTERING') {
+                    let dx = this.x - this.realX;
+                    let dy = this.y - this.realY;
+                    this.realX += dx * 0.05;
+                    this.realY += dy * 0.05;
+                    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) this.state = 'GRID';
+                } else if (this.state === 'GRID') {
+                    // Hover movement
+                    this.realX = this.x + Math.sin(time * 0.002 + this.y * 0.1) * 5;
+                    this.realY = this.y + Math.cos(time * 0.003) * 2;
+
+                    // Random Dive
+                    if (Math.random() < 0.001) { // 0.1% chance per frame
+                        this.state = 'DIVE';
+                        this.divePath = {
+                            t: 0,
+                            startX: this.realX,
+                            startY: this.realY,
+                            controlX: this.realX + (Math.random() - 0.5) * 200,
+                            controlY: this.realY + 100,
+                            endX: game.player.x,
+                            endY: CANVAS_HEIGHT + 50
+                        };
+                        game.audio.playTone(300 + Math.random() * 200, 'sawtooth', 0.2);
+                    }
+                } else if (this.state === 'DIVE') {
+                    this.divePath.t += dt * 0.002;
+                    if (this.divePath.t > 1) {
+                        this.state = 'RETURN'; // Or just reset to top
+                        this.realY = -20;
+                        this.state = 'ENTERING';
+                        return;
+                    }
+
+                    // Bezier
+                    const t = this.divePath.t;
+                    const u = 1 - t;
+                    const p0 = { x: this.divePath.startX, y: this.divePath.startY };
+                    const p1 = { x: this.divePath.controlX, y: this.divePath.controlY };
+                    const p2 = { x: this.divePath.endX, y: this.divePath.endY };
+
+                    this.realX = u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x;
+                    this.realY = u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y;
+
+                    // Shoot?
+                    if (game.player && Math.random() < 0.02) {
+                        // Aim at player
+                        // Simple down for now or vector
+                        game.projectiles.push(new GalagaBullet(this.realX, this.realY, 1, false));
+                    }
+
+                    // Collision with player checked in Game
+                    if (game.player && Math.hypot(this.realX - game.player.x, this.realY - game.player.y) < 16) {
+                        game.lives--;
+                        game.audio.playDie();
+                        this.state = 'ENTERING'; // Respawn enemy
+                        // Actually enemy should die too?
+                        // In Galaga Kamikaze kills both.
+                        // But let's just punish player.
+                        if (game.lives <= 0) game.state = 'GAMEOVER';
+                    }
+                }
+            }
+            draw(ctx) {
+                let color = '#FF0'; // Bee
+                if (this.type === 1) color = '#F00'; // Butterfly
+                if (this.type === 2) color = '#0F0'; // Boss
+
+                ctx.fillStyle = color;
+
+                const x = this.realX;
+                const y = this.realY;
+
+                // Draw Alien logic
+                ctx.beginPath();
+                if (this.type === 0) { // BEE
+                    ctx.moveTo(x, y - 5); ctx.lineTo(x + 6, y - 2); ctx.lineTo(x + 4, y + 4); ctx.lineTo(x - 4, y + 4); ctx.lineTo(x - 6, y - 2);
+                } else if (this.type === 1) { // BUTTERFLY
+                    ctx.moveTo(x, y + 4); ctx.lineTo(x + 6, y - 4); ctx.lineTo(x, y); ctx.lineTo(x - 6, y - 4);
+                } else { // BOSS
+                    ctx.moveTo(x, y + 6); ctx.lineTo(x + 8, y - 4); ctx.lineTo(x, y - 6); ctx.lineTo(x - 8, y - 4);
+                }
+                ctx.fill();
+
+                // Eyes
+                ctx.fillStyle = 'black';
+                ctx.fillRect(x - 2, y - 2, 1, 1);
+                ctx.fillRect(x + 1, y - 2, 1, 1);
+            }
+        }
+
+        class GalagaGame {
+            constructor(input, audio) {
+                this.input = input;
+                this.audio = audio;
+                this.player = new GalagaPlayer(input);
+                this.stars = [];
+                for (let i = 0; i < 50; i++) this.stars.push(new GalagaStar());
+
+                this.enemies = [];
+                this.projectiles = [];
+                this.score = 0;
+                this.lives = 3;
+                this.wave = 1;
+                this.state = 'PLAYING';
+
+                this.spawnWave();
+            }
+
+            init() {
+                // Nothing needed really
+            }
+
+            spawnWave() {
+                // Create grid
+                const rows = 4;
+                const cols = 10;
+                const startX = 60;
+                const startY = 50;
+                const gap = 30;
+
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        let type = 0;
+                        if (r === 0) type = 2; // Boss
+                        else if (r === 1) type = 1; // Butterfly
+                        this.enemies.push(new GalagaEnemy(startX + c * gap, startY + r * gap, type));
+                    }
+                }
+            }
+
+            update(dt) {
+                const time = Date.now();
+
+                // Update stars
+                this.stars.forEach(s => s.update());
+
+                if (this.lives <= 0) {
+                    this.state = 'GAMEOVER';
+                    return;
+                }
+
+                this.player.update(dt, this);
+
+                // Enemies
+                this.enemies.forEach(e => e.update(dt, this));
+
+                // Next Wave
+                if (this.enemies.length === 0) {
+                    this.wave++;
+                    this.spawnWave();
+                    // Audio Level Start
+                    this.audio.playTone(600, 'square', 0.5);
+                }
+
+                // Projectiles
+                for (let i = this.projectiles.length - 1; i >= 0; i--) {
+                    let p = this.projectiles[i];
+                    p.update();
+                    if (p.remove) {
+                        this.projectiles.splice(i, 1);
+                        continue;
+                    }
+
+                    // Collision
+                    if (p.isPlayer) {
+                        // Check vs Enemies
+                        for (let j = this.enemies.length - 1; j >= 0; j--) {
+                            let e = this.enemies[j];
+                            if (Math.hypot(p.x - e.realX, p.y - e.realY) < 12) {
+                                // Hit
+                                this.enemies.splice(j, 1);
+                                this.projectiles.splice(i, 1);
+                                this.score += 100 * (1 + e.type); // More points for bosses
+                                this.audio.playTone(800, 'sawtooth', 0.05);
+                                p.remove = true; // Optimization
+                                break;
+                            }
+                        }
+                    } else {
+                        // Enemy Bullet vs Player
+                        if (Math.hypot(p.x - this.player.x, p.y - this.player.y) < 10) {
+                            this.lives--;
+                            this.projectiles.splice(i, 1);
+                            this.audio.playDie();
+                            if (this.lives <= 0) this.state = 'GAMEOVER';
+                            break;
+                        }
+                    }
+                }
+            }
+
+            draw(ctx) {
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+                this.stars.forEach(s => s.draw(ctx));
+
+                this.player.draw(ctx);
+                this.enemies.forEach(e => e.draw(ctx));
+                this.projectiles.forEach(p => p.draw(ctx));
+
+                // UI
+                ctx.fillStyle = 'red';
+                ctx.font = '20px Courier New';
+                ctx.textAlign = 'left';
+                ctx.fillText(`SCORE: ${this.score}`, 10, 20);
+
+                if (this.state === 'GAMEOVER') {
+                    ctx.fillStyle = 'red';
+                    ctx.font = '30px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillText("GAME OVER", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+                    ctx.font = '15px Courier New';
+                    ctx.fillText("Press Esc to Menu", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+                }
+            }
+        }
+
         // --- Initialization ---
-        const game = new Game();
-        game.init();
+        // const game = new Game();
+        // game.init();
+
+        // --- Game Manager & Entry Point ---
+        class GameManager {
+            constructor() {
+                this.input = new InputHandler();
+                this.audio = new AudioController();
+
+                this.state = 'MENU'; // MENU, PACMAN, GALAGA
+                this.currentGame = null;
+
+                this.menuSelection = 0; // 0: Pacman, 1: Galaga
+                this.optionCount = 2;
+
+                // Initialize loop
+                this.lastTime = 0;
+                requestAnimationFrame((t) => this.loop(t));
+
+                // Menu controls
+                window.addEventListener('keydown', (e) => {
+                    if (this.state === 'MENU') {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                            this.menuSelection = (this.menuSelection - 1 + this.optionCount) % this.optionCount;
+                            this.audio.playTone(200, 'square', 0.05);
+                        }
+                        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                            this.menuSelection = (this.menuSelection + 1) % this.optionCount;
+                            this.audio.playTone(200, 'square', 0.05);
+                        }
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            this.startGame();
+                        }
+                    } else if (this.currentGame) {
+                        // Allow resetting to menu? For now, no keybind, just rely on game over or reload
+                        // Maybe Esc to Menu?
+                        if (e.key === 'Escape') {
+                            this.state = 'MENU';
+                            this.currentGame = null;
+                        }
+                    }
+                });
+            }
+
+            startGame() {
+                this.audio.ctx && this.audio.ctx.resume();
+                if (this.menuSelection === 0) {
+                    this.state = 'PACMAN';
+                    this.currentGame = new PacmanGame(this.input, this.audio);
+                    this.currentGame.init();
+                } else if (this.menuSelection === 1) {
+                    this.state = 'GALAGA';
+                    this.currentGame = new GalagaGame(this.input, this.audio);
+                }
+            }
+
+            loop(timestamp) {
+                const dt = timestamp - this.lastTime;
+                this.lastTime = timestamp;
+
+                if (this.state === 'MENU') {
+                    this.drawMenu();
+                } else if (this.currentGame) {
+                    // We need to modify PacmanGame to NOT have its own loop, but expose update/draw
+                    // Currently PacmanGame.init() starts a loop.
+                    // Let's suppress PacmanGame.init() loop or modify it.
+                    // For the moment, let's just let PacmanGame run its own loop if it was designed that way, 
+                    // BUT PacmanGame.loop calls requestAnimationFrame.
+                    // If we run `GameManager.loop` AND `PacmanGame.loop`, we have double loops.
+
+                    if (this.state === 'PACMAN') {
+                        this.currentGame.update(dt);
+                        this.currentGame.draw(ctx);
+                    } else if (this.state === 'GALAGA' && this.currentGame) {
+                        this.currentGame.update(dt);
+                        this.currentGame.draw(ctx);
+                    }
+                }
+
+                requestAnimationFrame((t) => this.loop(t));
+            }
+
+            drawMenu() {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+                ctx.fillStyle = '#FFFF00';
+                ctx.font = '40px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText("ARCADE", CANVAS_WIDTH / 2, 100);
+
+                ctx.font = '24px Courier New';
+
+                // Option 1: PAC-MAN
+                ctx.fillStyle = (this.menuSelection === 0) ? '#FFFF00' : '#555';
+                ctx.fillText((this.menuSelection === 0 ? "> " : "") + "PAC-MAN", CANVAS_WIDTH / 2, 200);
+
+                // Option 2: GALAGA
+                ctx.fillStyle = (this.menuSelection === 1) ? '#FF0000' : '#555';
+                ctx.fillText((this.menuSelection === 1 ? "> " : "") + "GALAGA", CANVAS_WIDTH / 2, 250);
+
+                ctx.fillStyle = '#888';
+                ctx.font = '14px Courier New';
+                ctx.fillText("Use Arrow Keys & Enter", CANVAS_WIDTH / 2, 400);
+            }
+        }
+
+        const gameManager = new GameManager();
+
+
 
     </script>
 </body>
